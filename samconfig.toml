@@ -1,0 +1,11 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "assets-api"
+resolve_s3 = true
+s3_prefix = "assets-api"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+# NOTE: Update this after first deploy with the correct ECR repository
+# image_repositories = ["ICAAAssets=ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/assets-api/icaaassets"]

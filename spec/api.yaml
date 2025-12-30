@@ -1,0 +1,435 @@
+openapi: 3.0.0
+info:
+  title: ICAA Assets API
+  version: 1.0.0
+  description: An API for managing assets (images, documents) for the ICAA website.
+servers:
+  - url: https://api.icaa.world/
+    description: Production server
+  - url: http://localhost:3000/
+    description: Local dev server
+security:
+  - googleCookieAuth: []
+  - googleBearerAuth: []
+paths:
+  /assets/v1:
+    get:
+      summary: Get all assets
+      description: Retrieves a list of all assets, optionally filtered by folder
+      security: []
+      parameters:
+        - name: folder
+          in: query
+          description: Filter assets by folder
+          required: false
+          schema:
+            type: string
+            example: "carousel"
+        - name: cursor
+          in: query
+          description: Cursor for pagination
+          required: false
+          schema:
+            type: string
+            example: "Y29uZ3JhdHMsIHlvdSBmb3VuZCB0aGUgZWFzdGVyIGVnZw=="
+        - name: limit
+          in: query
+          description: Max number of assets to fetch
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+            example: 20
+      responses:
+        '200':
+          description: A list of assets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - hasNextPage
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Asset'
+                  cursor:
+                    type: string
+                    example: "Y29uZ3JhdHMsIHlvdSBmb3VuZCB0aGUgZWFzdGVyIGVnZw=="
+                  hasNextPage:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/v1/folders:
+    get:
+      summary: Get all folders
+      description: Retrieves a list of all distinct folders
+      security: []
+      responses:
+        '200':
+          description: A list of folder names.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - folders
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      type: string
+                    example: ["carousel", "articles", "rules"]
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/v1/upload-url:
+    post:
+      summary: Get a presigned upload URL
+      description: Returns a presigned URL for uploading an asset directly to S3. Admin only.
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
+      requestBody:
+        description: Upload request details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadRequest'
+      responses:
+        '200':
+          description: Presigned upload URL and asset ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/v1/{id}:
+    get:
+      summary: Get an asset
+      description: Get one asset by ID
+      security: []
+      parameters:
+        - name: id
+          in: path
+          description: ID of the asset
+          required: true
+          schema:
+            type: string
+            format: uuid
+            example: 00000000-0000-0000-0000-000000000000
+      responses:
+        '200':
+          description: The asset
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - asset
+                properties:
+                  asset:
+                    $ref: '#/components/schemas/Asset'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Asset not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an asset
+      description: Delete an asset by ID. Admin only.
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
+      parameters:
+        - name: id
+          in: path
+          description: ID of the asset
+          required: true
+          schema:
+            type: string
+            format: uuid
+            example: 00000000-0000-0000-0000-000000000000
+      responses:
+        '204':
+          description: Asset deleted successfully.
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Asset not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /assets/v1/{id}/confirm:
+    post:
+      summary: Confirm asset upload
+      description: Confirms that an asset has been uploaded to S3. Admin only.
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
+      parameters:
+        - name: id
+          in: path
+          description: ID of the asset
+          required: true
+          schema:
+            type: string
+            format: uuid
+            example: 00000000-0000-0000-0000-000000000000
+      responses:
+        '200':
+          description: Asset confirmed successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - asset
+                properties:
+                  asset:
+                    $ref: '#/components/schemas/Asset'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Asset not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    googleCookieAuth:
+      type: apiKey
+      in: cookie
+      name: GOOGLE_AUTH_JWT
+    googleBearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Asset:
+      type: object
+      required:
+        - id
+        - folder
+        - name
+        - contentType
+        - size
+        - url
+        - status
+        - createdAt
+        - createdBy
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          example: 00000000-0000-0000-0000-000000000000
+        folder:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: carousel
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: hero-banner.png
+        description:
+          type: string
+          maxLength: 1000
+          example: Main hero banner for the homepage carousel
+        contentType:
+          type: string
+          maxLength: 100
+          example: image/png
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes
+          example: 1048576
+        url:
+          type: string
+          description: CDN URL for the asset
+          example: https://assets.icaa.world/carousel/abc123/hero-banner.png
+        status:
+          $ref: '#/components/schemas/AssetStatus'
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2025-08-19T18:46:53.185Z"
+        createdBy:
+          type: string
+          readOnly: true
+          description: Email of the admin who uploaded the asset
+          example: admin@icaa.world
+    AssetStatus:
+      type: string
+      enum:
+        - pending
+        - confirmed
+      example: confirmed
+    UploadRequest:
+      type: object
+      required:
+        - folder
+        - fileName
+        - contentType
+      properties:
+        folder:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Folder to upload the asset to
+          example: carousel
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Original file name
+          example: hero-banner.png
+        contentType:
+          type: string
+          maxLength: 100
+          description: MIME type of the file
+          example: image/png
+        description:
+          type: string
+          maxLength: 1000
+          description: Optional description of the asset
+          example: Main hero banner for the homepage carousel
+    UploadResponse:
+      type: object
+      required:
+        - assetId
+        - uploadUrl
+        - expiresAt
+      properties:
+        assetId:
+          type: string
+          format: uuid
+          description: ID of the asset (use this to confirm the upload)
+          example: 00000000-0000-0000-0000-000000000000
+        uploadUrl:
+          type: string
+          description: Presigned URL to upload the file to
+          example: https://icaa-assets.s3.amazonaws.com/carousel/abc123/hero-banner.png?X-Amz-...
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the presigned URL expires
+          example: "2025-08-19T19:46:53.185Z"
+    ErrorCode:
+      type: string
+      enum:
+        - InternalError
+        - LimitOutOfBounds
+        - InvalidCursor
+        - NotFound
+        - EmptyBody
+        - InvalidBody
+        - AlreadyExists
+        - InputValidationError
+        - AuthError
+        - AssetNotUploaded
+        - FileTooLarge
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+          example: InternalError
+        message:
+          type: string
+          example: An unexpected error occurred.
