@@ -2,12 +2,12 @@ package assets
 
 import (
 	"context"
+	"path"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Status represents the status of an asset
 type Status string
 
 const (
@@ -15,58 +15,117 @@ const (
 	StatusConfirmed Status = "confirmed"
 )
 
-// Asset represents an uploaded file (image, document, etc.)
-type Asset struct {
+const RootPath = "/"
+
+// RootFolderID is the well-known UUID for the root folder.
+// The root folder has Path="" (no parent) and Name="/".
+var RootFolderID = uuid.MustParse("00000000-0000-0000-0000-000000000000")
+
+type AssetType int
+
+const (
+	AssetTypeFile AssetType = iota
+	AssetTypeFolder
+)
+
+type Asset interface {
+	Type() AssetType
+	AsFolder() Folder
+	AsFile() File
+}
+
+var _ Asset = &File{}
+
+type File struct {
 	ID          uuid.UUID
-	Folder      string
+	Path        string
 	Name        string
 	Description *string
 	ContentType string
 	Size        int64
-	S3Key       string
+	ObjectKey   string
 	Status      Status
 	CreatedAt   time.Time
 	CreatedBy   string
+	Version     int
 }
 
-// URL returns the CDN URL for the asset
-func (a Asset) URL(cdnBaseURL string) string {
-	return cdnBaseURL + "/" + a.S3Key
+func (f *File) Type() AssetType {
+	return AssetTypeFile
 }
 
-// GetAssetsResponse is the response for listing assets
+func (f *File) AsFolder() Folder {
+	panic("not a folder")
+}
+
+func (f *File) AsFile() File {
+	return *f
+}
+
+func (f *File) URL(baseURL string) string {
+	return path.Join(baseURL, f.ObjectKey)
+}
+
+var _ Asset = &Folder{}
+
+type Folder struct {
+	ID           uuid.UUID
+	Path         string
+	Name         string
+	ContentCount int
+	Description  *string
+	CreatedAt    time.Time
+	CreatedBy    string
+	Version      int
+}
+
+func (f *Folder) AsFile() File {
+	panic("not a file")
+}
+
+func (f *Folder) AsFolder() Folder {
+	return *f
+}
+
+func (f *Folder) Type() AssetType {
+	return AssetTypeFolder
+}
+
+func (f *Folder) IsEmpty() bool {
+	return f.ContentCount == 0
+}
+
 type GetAssetsResponse struct {
 	Data        []Asset
 	Cursor      *string
 	HasNextPage bool
 }
 
-// Repository defines the interface for asset persistence
-type Repository interface {
-	// GetAsset retrieves a single asset by ID
+type MetadataRepository interface {
 	GetAsset(ctx context.Context, id uuid.UUID) (Asset, error)
-
-	// GetAssets retrieves assets with optional folder filter and pagination
-	GetAssets(ctx context.Context, folder *string, limit int32, cursor *string) (GetAssetsResponse, error)
-
-	// GetFolders retrieves all distinct folder names
-	GetFolders(ctx context.Context) ([]string, error)
-
-	// CreateAsset creates a new asset record
+	GetAssets(ctx context.Context, path string, limit int32, cursor *string) (GetAssetsResponse, error)
 	CreateAsset(ctx context.Context, asset Asset) error
-
-	// UpdateAsset updates an existing asset
 	UpdateAsset(ctx context.Context, asset Asset) error
-
-	// DeleteAsset deletes an asset by ID
 	DeleteAsset(ctx context.Context, id uuid.UUID) error
+	// EnsureRootFolderExists creates the root folder if it doesn't exist.
+	// Returns the root folder.
+	EnsureRootFolderExists(ctx context.Context, createdBy string) (*Folder, error)
+}
 
-	// AddFolder adds a folder to the folder index (called when first asset in folder is created)
-	AddFolder(ctx context.Context, folder string) error
+type PresignedUploadResult struct {
+	UploadURL string
+	ExpiresAt time.Time
+}
 
-	// RemoveFolder removes a folder from the index (called when last asset in folder is deleted)
-	RemoveFolder(ctx context.Context, folder string) error
+type HeadObjectResult struct {
+	Size        int64
+	ContentType string
+	Exists      bool
+}
 
-	// CountAssetsInFolder returns the number of assets in a folder
-	CountAssetsInFolder(ctx context.Context, folder string) (int, error)
+type StorageRepository interface {
+	GenerateObjectKey(assetID uuid.UUID) string
+	GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string) (PresignedUploadResult, error)
+	HeadObject(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error)
+	DeleteObject(ctx context.Context, assetID uuid.UUID) error
 }

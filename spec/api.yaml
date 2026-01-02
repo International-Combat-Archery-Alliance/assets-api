@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: ICAA Assets API
   version: 1.0.0
-  description: An API for managing assets (images, documents) for the ICAA website.
+  description: An API for managing assets (files and folders) for the ICAA website.
 servers:
   - url: https://api.icaa.world/
     description: Production server
@@ -14,17 +14,17 @@ security:
 paths:
   /assets/v1:
     get:
-      summary: Get all assets
-      description: Retrieves a list of all assets, optionally filtered by folder
+      summary: Get all assets at a path
+      description: Retrieves a list of all assets (files and folders) at the specified path
       security: []
       parameters:
-        - name: folder
+        - name: path
           in: query
-          description: Filter assets by folder
-          required: false
+          description: Path to list assets from (use "/" for root)
+          required: true
           schema:
             type: string
-            example: "carousel"
+            example: "/"
         - name: cursor
           in: query
           description: Cursor for pagination
@@ -77,25 +77,55 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   /assets/v1/folders:
-    get:
-      summary: Get all folders
-      description: Retrieves a list of all distinct folders
-      security: []
+    post:
+      summary: Create a folder
+      description: Creates a new folder at the specified path. Admin only.
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
+      requestBody:
+        description: Folder creation details
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFolderRequest'
       responses:
-        '200':
-          description: A list of folder names.
+        '201':
+          description: Folder created successfully.
           content:
             application/json:
               schema:
                 type: object
                 required:
-                  - folders
+                  - folder
                 properties:
-                  folders:
-                    type: array
-                    items:
-                      type: string
-                    example: ["carousel", "articles", "rules"]
+                  folder:
+                    $ref: '#/components/schemas/Folder'
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Parent folder not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Folder already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: Unknown server error.
           content:
@@ -106,7 +136,7 @@ paths:
   /assets/v1/upload-url:
     post:
       summary: Get a presigned upload URL
-      description: Returns a presigned URL for uploading an asset directly to S3. Admin only.
+      description: Returns a presigned URL for uploading a file directly to S3. Admin only. The parent folder must exist.
       security:
         - googleCookieAuth: [admin]
         - googleBearerAuth: [admin]
@@ -136,6 +166,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Parent folder not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: Unknown server error.
           content:
@@ -146,7 +182,7 @@ paths:
   /assets/v1/{id}:
     get:
       summary: Get an asset
-      description: Get one asset by ID
+      description: Get one asset (file or folder) by ID
       security: []
       parameters:
         - name: id
@@ -189,7 +225,7 @@ paths:
                 $ref: '#/components/schemas/Error'
     delete:
       summary: Delete an asset
-      description: Delete an asset by ID. Admin only.
+      description: Delete an asset by ID. Admin only. Deleting a folder will fail if it still contains any files or subfolders.
       security:
         - googleCookieAuth: [admin]
         - googleBearerAuth: [admin]
@@ -206,7 +242,7 @@ paths:
         '204':
           description: Asset deleted successfully.
         '400':
-          description: Bad request.
+          description: Bad request (e.g., folder not empty).
           content:
             application/json:
               schema:
@@ -232,15 +268,15 @@ paths:
 
   /assets/v1/{id}/confirm:
     post:
-      summary: Confirm asset upload
-      description: Confirms that an asset has been uploaded to S3. Admin only.
+      summary: Confirm file upload
+      description: Confirms that a file has been uploaded to S3. Admin only.
       security:
         - googleCookieAuth: [admin]
         - googleBearerAuth: [admin]
       parameters:
         - name: id
           in: path
-          description: ID of the asset
+          description: ID of the file
           required: true
           schema:
             type: string
@@ -248,18 +284,18 @@ paths:
             example: 00000000-0000-0000-0000-000000000000
       responses:
         '200':
-          description: Asset confirmed successfully.
+          description: File confirmed successfully.
           content:
             application/json:
               schema:
                 type: object
                 required:
-                  - asset
+                  - file
                 properties:
-                  asset:
-                    $ref: '#/components/schemas/Asset'
+                  file:
+                    $ref: '#/components/schemas/File'
         '400':
-          description: Bad request.
+          description: Bad request (e.g., file not uploaded yet, or asset is not a file).
           content:
             application/json:
               schema:
@@ -271,7 +307,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Asset not found.
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Version conflict (file was modified by another request).
           content:
             application/json:
               schema:
@@ -294,11 +336,27 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    AssetType:
+      type: string
+      enum:
+        - file
+        - folder
+      example: file
     Asset:
+      oneOf:
+        - $ref: '#/components/schemas/File'
+        - $ref: '#/components/schemas/Folder'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/File'
+          folder: '#/components/schemas/Folder'
+    File:
       type: object
       required:
+        - type
         - id
-        - folder
+        - path
         - name
         - contentType
         - size
@@ -307,16 +365,18 @@ components:
         - createdAt
         - createdBy
       properties:
+        type:
+          $ref: '#/components/schemas/AssetType'
+          example: file
         id:
           type: string
           format: uuid
           readOnly: true
           example: 00000000-0000-0000-0000-000000000000
-        folder:
+        path:
           type: string
-          minLength: 1
-          maxLength: 100
-          example: carousel
+          description: Parent folder path
+          example: /images/carousel
         name:
           type: string
           minLength: 1
@@ -337,10 +397,10 @@ components:
           example: 1048576
         url:
           type: string
-          description: CDN URL for the asset
-          example: https://assets.icaa.world/carousel/abc123/hero-banner.png
+          description: CDN URL for the file
+          example: https://assets.icaa.world/abc123
         status:
-          $ref: '#/components/schemas/AssetStatus'
+          $ref: '#/components/schemas/FileStatus'
         createdAt:
           type: string
           format: date-time
@@ -349,27 +409,92 @@ components:
         createdBy:
           type: string
           readOnly: true
-          description: Email of the admin who uploaded the asset
+          description: Email of the admin who uploaded the file
           example: admin@icaa.world
-    AssetStatus:
+    Folder:
+      type: object
+      required:
+        - type
+        - id
+        - path
+        - name
+        - contentCount
+        - createdAt
+        - createdBy
+      properties:
+        type:
+          $ref: '#/components/schemas/AssetType'
+          example: folder
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          example: 00000000-0000-0000-0000-000000000000
+        path:
+          type: string
+          description: Parent folder path
+          example: /images
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: carousel
+        description:
+          type: string
+          maxLength: 1000
+          example: Images for the homepage carousel
+        contentCount:
+          type: integer
+          description: Number of items (files and folders) directly in this folder
+          example: 5
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          example: "2025-08-19T18:46:53.185Z"
+        createdBy:
+          type: string
+          readOnly: true
+          description: Email of the admin who created the folder
+          example: admin@icaa.world
+    FileStatus:
       type: string
       enum:
         - pending
         - confirmed
       example: confirmed
+    CreateFolderRequest:
+      type: object
+      required:
+        - path
+        - name
+      properties:
+        path:
+          type: string
+          description: Parent folder path (use "/" for root)
+          example: /images
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Name of the folder to create
+          example: carousel
+        description:
+          type: string
+          maxLength: 1000
+          description: Optional description of the folder
+          example: Images for the homepage carousel
     UploadRequest:
       type: object
       required:
-        - folder
+        - path
         - fileName
         - contentType
       properties:
-        folder:
+        path:
           type: string
-          minLength: 1
-          maxLength: 100
-          description: Folder to upload the asset to
-          example: carousel
+          description: Parent folder path where the file will be stored
+          example: /images/carousel
         fileName:
           type: string
           minLength: 1
@@ -384,24 +509,24 @@ components:
         description:
           type: string
           maxLength: 1000
-          description: Optional description of the asset
+          description: Optional description of the file
           example: Main hero banner for the homepage carousel
     UploadResponse:
       type: object
       required:
-        - assetId
+        - fileId
         - uploadUrl
         - expiresAt
       properties:
-        assetId:
+        fileId:
           type: string
           format: uuid
-          description: ID of the asset (use this to confirm the upload)
+          description: ID of the file (use this to confirm the upload)
           example: 00000000-0000-0000-0000-000000000000
         uploadUrl:
           type: string
           description: Presigned URL to upload the file to
-          example: https://icaa-assets.s3.amazonaws.com/carousel/abc123/hero-banner.png?X-Amz-...
+          example: https://icaa-assets.s3.amazonaws.com/abc123?X-Amz-...
         expiresAt:
           type: string
           format: date-time
@@ -421,6 +546,10 @@ components:
         - AuthError
         - AssetNotUploaded
         - FileTooLarge
+        - FolderNotEmpty
+        - ParentFolderNotFound
+        - NotAFile
+        - VersionConflict
     Error:
       type: object
       required:

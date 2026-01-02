@@ -6,15 +6,20 @@ import "fmt"
 type ErrorCode string
 
 const (
-	ErrorCodeNotFound         ErrorCode = "NotFound"
-	ErrorCodeAlreadyExists    ErrorCode = "AlreadyExists"
-	ErrorCodeInvalidCursor    ErrorCode = "InvalidCursor"
-	ErrorCodeTimeout          ErrorCode = "Timeout"
-	ErrorCodeFailedToFetch    ErrorCode = "FailedToFetch"
-	ErrorCodeFailedToWrite    ErrorCode = "FailedToWrite"
-	ErrorCodeFailedToDelete   ErrorCode = "FailedToDelete"
-	ErrorCodeAssetNotUploaded ErrorCode = "AssetNotUploaded"
-	ErrorCodeFileTooLarge     ErrorCode = "FileTooLarge"
+	ErrorCodeNotFound               ErrorCode = "NotFound"
+	ErrorCodeAlreadyExists          ErrorCode = "AlreadyExists"
+	ErrorCodeInvalidCursor          ErrorCode = "InvalidCursor"
+	ErrorCodeTimeout                ErrorCode = "Timeout"
+	ErrorCodeFailedToFetch          ErrorCode = "FailedToFetch"
+	ErrorCodeFailedToWrite          ErrorCode = "FailedToWrite"
+	ErrorCodeFailedToDelete         ErrorCode = "FailedToDelete"
+	ErrorCodeAssetNotUploaded       ErrorCode = "AssetNotUploaded"
+	ErrorCodeFileTooLarge           ErrorCode = "FileTooLarge"
+	ErrorCodeFolderNotEmpty         ErrorCode = "FolderNotEmpty"
+	ErrorCodeParentFolderNotFound   ErrorCode = "ParentFolderNotFound"
+	ErrorCodeNotAFile               ErrorCode = "NotAFile"
+	ErrorCodeVersionConflict        ErrorCode = "VersionConflict"
+	ErrorCodeNotAllowedToDeleteRoot ErrorCode = "NotAllowedToDeleteRoot"
 )
 
 // AssetError represents an error in asset operations
@@ -106,6 +111,13 @@ func NewFileTooLargeError(message string) *AssetError {
 	}
 }
 
+func NewNotAllowedToDeleteRootError() *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeNotAllowedToDeleteRoot,
+		Message: "The root folder cannot be deleted",
+	}
+}
+
 // IsNotFoundError checks if the error is a not found error
 func IsNotFoundError(err error) bool {
 	if assetErr, ok := err.(*AssetError); ok {
@@ -126,6 +138,70 @@ func IsAlreadyExistsError(err error) bool {
 func IsInvalidCursorError(err error) bool {
 	if assetErr, ok := err.(*AssetError); ok {
 		return assetErr.Code == ErrorCodeInvalidCursor
+	}
+	return false
+}
+
+// NewFolderNotEmptyError creates a new folder not empty error
+func NewFolderNotEmptyError(message string) *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeFolderNotEmpty,
+		Message: message,
+	}
+}
+
+// IsFolderNotEmptyError checks if the error is a folder not empty error
+func IsFolderNotEmptyError(err error) bool {
+	if assetErr, ok := err.(*AssetError); ok {
+		return assetErr.Code == ErrorCodeFolderNotEmpty
+	}
+	return false
+}
+
+// NewParentFolderNotFoundError creates a new parent folder not found error
+func NewParentFolderNotFoundError(message string) *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeParentFolderNotFound,
+		Message: message,
+	}
+}
+
+// IsParentFolderNotFoundError checks if the error is a parent folder not found error
+func IsParentFolderNotFoundError(err error) bool {
+	if assetErr, ok := err.(*AssetError); ok {
+		return assetErr.Code == ErrorCodeParentFolderNotFound
+	}
+	return false
+}
+
+// NewNotAFileError creates a new not a file error
+func NewNotAFileError(message string) *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeNotAFile,
+		Message: message,
+	}
+}
+
+// IsNotAFileError checks if the error is a not a file error
+func IsNotAFileError(err error) bool {
+	if assetErr, ok := err.(*AssetError); ok {
+		return assetErr.Code == ErrorCodeNotAFile
+	}
+	return false
+}
+
+// NewVersionConflictError creates a new version conflict error
+func NewVersionConflictError(message string) *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeVersionConflict,
+		Message: message,
+	}
+}
+
+// IsVersionConflictError checks if the error is a version conflict error
+func IsVersionConflictError(err error) bool {
+	if assetErr, ok := err.(*AssetError); ok {
+		return assetErr.Code == ErrorCodeVersionConflict
 	}
 	return false
 }

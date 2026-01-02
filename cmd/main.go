@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 func main() {
@@ -29,6 +28,12 @@ func main() {
 	db, err := makeDB(ctx)
 	if err != nil {
 		logger.Error("Error creating db client", "error", err)
+		os.Exit(1)
+	}
+
+	_, err = db.EnsureRootFolderExists(ctx, "machine")
+	if err != nil {
+		logger.Error("Error making root folder", "error", err)
 		os.Exit(1)
 	}
 
@@ -175,23 +180,4 @@ func createProdS3Client(ctx context.Context) (*s3.Client, error) {
 		return nil, err
 	}
 	return s3.NewFromConfig(cfg), nil
-}
-
-func getParameterFromAWS(ctx context.Context, parameterName string) (string, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return "", fmt.Errorf("unable to load SDK config: %w", err)
-	}
-
-	client := ssm.NewFromConfig(cfg)
-
-	result, err := client.GetParameter(ctx, &ssm.GetParameterInput{
-		Name:           aws.String(parameterName),
-		WithDecryption: aws.Bool(true),
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to get parameter %s: %w", parameterName, err)
-	}
-
-	return *result.Parameter.Value, nil
 }

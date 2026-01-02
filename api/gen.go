@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -29,10 +30,10 @@ const (
 	GoogleCookieAuthScopes = "googleCookieAuth.Scopes"
 )
 
-// Defines values for AssetStatus.
+// Defines values for AssetType.
 const (
-	Confirmed AssetStatus = "confirmed"
-	Pending   AssetStatus = "pending"
+	AssetTypeFile   AssetType = "file"
+	AssetTypeFolder AssetType = "folder"
 )
 
 // Defines values for ErrorCode.
@@ -42,36 +43,43 @@ const (
 	AuthError            ErrorCode = "AuthError"
 	EmptyBody            ErrorCode = "EmptyBody"
 	FileTooLarge         ErrorCode = "FileTooLarge"
+	FolderNotEmpty       ErrorCode = "FolderNotEmpty"
 	InputValidationError ErrorCode = "InputValidationError"
 	InternalError        ErrorCode = "InternalError"
 	InvalidBody          ErrorCode = "InvalidBody"
 	InvalidCursor        ErrorCode = "InvalidCursor"
 	LimitOutOfBounds     ErrorCode = "LimitOutOfBounds"
+	NotAFile             ErrorCode = "NotAFile"
 	NotFound             ErrorCode = "NotFound"
+	ParentFolderNotFound ErrorCode = "ParentFolderNotFound"
+	VersionConflict      ErrorCode = "VersionConflict"
+)
+
+// Defines values for FileStatus.
+const (
+	Confirmed FileStatus = "confirmed"
+	Pending   FileStatus = "pending"
 )
 
 // Asset defines model for Asset.
 type Asset struct {
-	ContentType string     `json:"contentType"`
-	CreatedAt   *time.Time `json:"createdAt,omitempty"`
-
-	// CreatedBy Email of the admin who uploaded the asset
-	CreatedBy   *string             `json:"createdBy,omitempty"`
-	Description *string             `json:"description,omitempty"`
-	Folder      string              `json:"folder"`
-	Id          *openapi_types.UUID `json:"id,omitempty"`
-	Name        string              `json:"name"`
-
-	// Size File size in bytes
-	Size   int64       `json:"size"`
-	Status AssetStatus `json:"status"`
-
-	// Url CDN URL for the asset
-	Url string `json:"url"`
+	union json.RawMessage
 }
 
-// AssetStatus defines model for AssetStatus.
-type AssetStatus string
+// AssetType defines model for AssetType.
+type AssetType string
+
+// CreateFolderRequest defines model for CreateFolderRequest.
+type CreateFolderRequest struct {
+	// Description Optional description of the folder
+	Description *string `json:"description,omitempty"`
+
+	// Name Name of the folder to create
+	Name string `json:"name"`
+
+	// Path Parent folder path (use "/" for root)
+	Path string `json:"path"`
+}
 
 // Error defines model for Error.
 type Error struct {
@@ -82,28 +90,71 @@ type Error struct {
 // ErrorCode defines model for ErrorCode.
 type ErrorCode string
 
+// File defines model for File.
+type File struct {
+	ContentType string     `json:"contentType"`
+	CreatedAt   *time.Time `json:"createdAt,omitempty"`
+
+	// CreatedBy Email of the admin who uploaded the file
+	CreatedBy   *string             `json:"createdBy,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	Id          *openapi_types.UUID `json:"id,omitempty"`
+	Name        string              `json:"name"`
+
+	// Path Parent folder path
+	Path string `json:"path"`
+
+	// Size File size in bytes
+	Size   int64      `json:"size"`
+	Status FileStatus `json:"status"`
+	Type   AssetType  `json:"type"`
+
+	// Url CDN URL for the file
+	Url string `json:"url"`
+}
+
+// FileStatus defines model for FileStatus.
+type FileStatus string
+
+// Folder defines model for Folder.
+type Folder struct {
+	// ContentCount Number of items (files and folders) directly in this folder
+	ContentCount int        `json:"contentCount"`
+	CreatedAt    *time.Time `json:"createdAt,omitempty"`
+
+	// CreatedBy Email of the admin who created the folder
+	CreatedBy   *string             `json:"createdBy,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	Id          *openapi_types.UUID `json:"id,omitempty"`
+	Name        string              `json:"name"`
+
+	// Path Parent folder path
+	Path string    `json:"path"`
+	Type AssetType `json:"type"`
+}
+
 // UploadRequest defines model for UploadRequest.
 type UploadRequest struct {
 	// ContentType MIME type of the file
 	ContentType string `json:"contentType"`
 
-	// Description Optional description of the asset
+	// Description Optional description of the file
 	Description *string `json:"description,omitempty"`
 
 	// FileName Original file name
 	FileName string `json:"fileName"`
 
-	// Folder Folder to upload the asset to
-	Folder string `json:"folder"`
+	// Path Parent folder path where the file will be stored
+	Path string `json:"path"`
 }
 
 // UploadResponse defines model for UploadResponse.
 type UploadResponse struct {
-	// AssetId ID of the asset (use this to confirm the upload)
-	AssetId openapi_types.UUID `json:"assetId"`
-
 	// ExpiresAt When the presigned URL expires
 	ExpiresAt time.Time `json:"expiresAt"`
+
+	// FileId ID of the file (use this to confirm the upload)
+	FileId openapi_types.UUID `json:"fileId"`
 
 	// UploadUrl Presigned URL to upload the file to
 	UploadUrl string `json:"uploadUrl"`
@@ -111,8 +162,8 @@ type UploadResponse struct {
 
 // GetAssetsV1Params defines parameters for GetAssetsV1.
 type GetAssetsV1Params struct {
-	// Folder Filter assets by folder
-	Folder *string `form:"folder,omitempty" json:"folder,omitempty"`
+	// Path Path to list assets from (use "/" for root)
+	Path string `form:"path" json:"path"`
 
 	// Cursor Cursor for pagination
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
@@ -121,17 +172,109 @@ type GetAssetsV1Params struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// PostAssetsV1FoldersJSONRequestBody defines body for PostAssetsV1Folders for application/json ContentType.
+type PostAssetsV1FoldersJSONRequestBody = CreateFolderRequest
+
 // PostAssetsV1UploadUrlJSONRequestBody defines body for PostAssetsV1UploadUrl for application/json ContentType.
 type PostAssetsV1UploadUrlJSONRequestBody = UploadRequest
 
+// AsFile returns the union data inside the Asset as a File
+func (t Asset) AsFile() (File, error) {
+	var body File
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFile overwrites any union data inside the Asset as the provided File
+func (t *Asset) FromFile(v File) error {
+	v.Type = "file"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFile performs a merge with any union data inside the Asset, using the provided File
+func (t *Asset) MergeFile(v File) error {
+	v.Type = "file"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsFolder returns the union data inside the Asset as a Folder
+func (t Asset) AsFolder() (Folder, error) {
+	var body Folder
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromFolder overwrites any union data inside the Asset as the provided Folder
+func (t *Asset) FromFolder(v Folder) error {
+	v.Type = "folder"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeFolder performs a merge with any union data inside the Asset, using the provided Folder
+func (t *Asset) MergeFolder(v Folder) error {
+	v.Type = "folder"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Asset) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t Asset) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "file":
+		return t.AsFile()
+	case "folder":
+		return t.AsFolder()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t Asset) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Asset) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Get all assets
+	// Get all assets at a path
 	// (GET /assets/v1)
 	GetAssetsV1(w http.ResponseWriter, r *http.Request, params GetAssetsV1Params)
-	// Get all folders
-	// (GET /assets/v1/folders)
-	GetAssetsV1Folders(w http.ResponseWriter, r *http.Request)
+	// Create a folder
+	// (POST /assets/v1/folders)
+	PostAssetsV1Folders(w http.ResponseWriter, r *http.Request)
 	// Get a presigned upload URL
 	// (POST /assets/v1/upload-url)
 	PostAssetsV1UploadUrl(w http.ResponseWriter, r *http.Request)
@@ -141,7 +284,7 @@ type ServerInterface interface {
 	// Get an asset
 	// (GET /assets/v1/{id})
 	GetAssetsV1Id(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
-	// Confirm asset upload
+	// Confirm file upload
 	// (POST /assets/v1/{id}/confirm)
 	PostAssetsV1IdConfirm(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
@@ -163,11 +306,18 @@ func (siw *ServerInterfaceWrapper) GetAssetsV1(w http.ResponseWriter, r *http.Re
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetAssetsV1Params
 
-	// ------------- Optional query parameter "folder" -------------
+	// ------------- Required query parameter "path" -------------
 
-	err = runtime.BindQueryParameter("form", true, false, "folder", r.URL.Query(), &params.Folder)
+	if paramValue := r.URL.Query().Get("path"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "path", r.URL.Query(), &params.Path)
 	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "folder", Err: err})
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
 		return
 	}
 
@@ -198,11 +348,19 @@ func (siw *ServerInterfaceWrapper) GetAssetsV1(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// GetAssetsV1Folders operation middleware
-func (siw *ServerInterfaceWrapper) GetAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
+// PostAssetsV1Folders operation middleware
+func (siw *ServerInterfaceWrapper) PostAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAssetsV1Folders(w, r)
+		siw.Handler.PostAssetsV1Folders(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -446,7 +604,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc("GET "+options.BaseURL+"/assets/v1", wrapper.GetAssetsV1)
-	m.HandleFunc("GET "+options.BaseURL+"/assets/v1/folders", wrapper.GetAssetsV1Folders)
+	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/folders", wrapper.PostAssetsV1Folders)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/upload-url", wrapper.PostAssetsV1UploadUrl)
 	m.HandleFunc("DELETE "+options.BaseURL+"/assets/v1/{id}", wrapper.DeleteAssetsV1Id)
 	m.HandleFunc("GET "+options.BaseURL+"/assets/v1/{id}", wrapper.GetAssetsV1Id)
@@ -494,27 +652,64 @@ func (response GetAssetsV1500JSONResponse) VisitGetAssetsV1Response(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetAssetsV1FoldersRequestObject struct {
+type PostAssetsV1FoldersRequestObject struct {
+	Body *PostAssetsV1FoldersJSONRequestBody
 }
 
-type GetAssetsV1FoldersResponseObject interface {
-	VisitGetAssetsV1FoldersResponse(w http.ResponseWriter) error
+type PostAssetsV1FoldersResponseObject interface {
+	VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error
 }
 
-type GetAssetsV1Folders200JSONResponse struct {
-	Folders []string `json:"folders"`
+type PostAssetsV1Folders201JSONResponse struct {
+	Folder Folder `json:"folder"`
 }
 
-func (response GetAssetsV1Folders200JSONResponse) VisitGetAssetsV1FoldersResponse(w http.ResponseWriter) error {
+func (response PostAssetsV1Folders201JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetAssetsV1Folders500JSONResponse Error
+type PostAssetsV1Folders400JSONResponse Error
 
-func (response GetAssetsV1Folders500JSONResponse) VisitGetAssetsV1FoldersResponse(w http.ResponseWriter) error {
+func (response PostAssetsV1Folders400JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1Folders401JSONResponse Error
+
+func (response PostAssetsV1Folders401JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1Folders404JSONResponse Error
+
+func (response PostAssetsV1Folders404JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1Folders409JSONResponse Error
+
+func (response PostAssetsV1Folders409JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1Folders500JSONResponse Error
+
+func (response PostAssetsV1Folders500JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -552,6 +747,15 @@ type PostAssetsV1UploadUrl401JSONResponse Error
 func (response PostAssetsV1UploadUrl401JSONResponse) VisitPostAssetsV1UploadUrlResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1UploadUrl404JSONResponse Error
+
+func (response PostAssetsV1UploadUrl404JSONResponse) VisitPostAssetsV1UploadUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -672,7 +876,7 @@ type PostAssetsV1IdConfirmResponseObject interface {
 }
 
 type PostAssetsV1IdConfirm200JSONResponse struct {
-	Asset Asset `json:"asset"`
+	File File `json:"file"`
 }
 
 func (response PostAssetsV1IdConfirm200JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
@@ -709,6 +913,15 @@ func (response PostAssetsV1IdConfirm404JSONResponse) VisitPostAssetsV1IdConfirmR
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PostAssetsV1IdConfirm409JSONResponse Error
+
+func (response PostAssetsV1IdConfirm409JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type PostAssetsV1IdConfirm500JSONResponse Error
 
 func (response PostAssetsV1IdConfirm500JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
@@ -720,12 +933,12 @@ func (response PostAssetsV1IdConfirm500JSONResponse) VisitPostAssetsV1IdConfirmR
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// Get all assets
+	// Get all assets at a path
 	// (GET /assets/v1)
 	GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject) (GetAssetsV1ResponseObject, error)
-	// Get all folders
-	// (GET /assets/v1/folders)
-	GetAssetsV1Folders(ctx context.Context, request GetAssetsV1FoldersRequestObject) (GetAssetsV1FoldersResponseObject, error)
+	// Create a folder
+	// (POST /assets/v1/folders)
+	PostAssetsV1Folders(ctx context.Context, request PostAssetsV1FoldersRequestObject) (PostAssetsV1FoldersResponseObject, error)
 	// Get a presigned upload URL
 	// (POST /assets/v1/upload-url)
 	PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1UploadUrlRequestObject) (PostAssetsV1UploadUrlResponseObject, error)
@@ -735,7 +948,7 @@ type StrictServerInterface interface {
 	// Get an asset
 	// (GET /assets/v1/{id})
 	GetAssetsV1Id(ctx context.Context, request GetAssetsV1IdRequestObject) (GetAssetsV1IdResponseObject, error)
-	// Confirm asset upload
+	// Confirm file upload
 	// (POST /assets/v1/{id}/confirm)
 	PostAssetsV1IdConfirm(ctx context.Context, request PostAssetsV1IdConfirmRequestObject) (PostAssetsV1IdConfirmResponseObject, error)
 }
@@ -795,23 +1008,30 @@ func (sh *strictHandler) GetAssetsV1(w http.ResponseWriter, r *http.Request, par
 	}
 }
 
-// GetAssetsV1Folders operation middleware
-func (sh *strictHandler) GetAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
-	var request GetAssetsV1FoldersRequestObject
+// PostAssetsV1Folders operation middleware
+func (sh *strictHandler) PostAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
+	var request PostAssetsV1FoldersRequestObject
+
+	var body PostAssetsV1FoldersJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetAssetsV1Folders(ctx, request.(GetAssetsV1FoldersRequestObject))
+		return sh.ssi.PostAssetsV1Folders(ctx, request.(PostAssetsV1FoldersRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetAssetsV1Folders")
+		handler = middleware(handler, "PostAssetsV1Folders")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetAssetsV1FoldersResponseObject); ok {
-		if err := validResponse.VisitGetAssetsV1FoldersResponse(w); err != nil {
+	} else if validResponse, ok := response.(PostAssetsV1FoldersResponseObject); ok {
+		if err := validResponse.VisitPostAssetsV1FoldersResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -931,39 +1151,46 @@ func (sh *strictHandler) PostAssetsV1IdConfirm(w http.ResponseWriter, r *http.Re
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"AA==",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
