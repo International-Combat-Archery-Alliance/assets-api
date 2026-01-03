@@ -16,7 +16,9 @@ paths:
     get:
       summary: Get all assets at a path
       description: Retrieves a list of all assets (files and folders) at the specified path
-      security: []
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
       parameters:
         - name: path
           in: query
@@ -179,20 +181,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /assets/v1/{id}:
+  /assets/v1/by-path:
     get:
       summary: Get an asset
-      description: Get one asset (file or folder) by ID
-      security: []
+      description: Get one asset (file or folder) by full path
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
       parameters:
-        - name: id
-          in: path
-          description: ID of the asset
+        - name: path
+          in: query
+          description: Full path to the asset (e.g., "/foo/bar.txt" or "/" for root)
           required: true
           schema:
             type: string
-            format: uuid
-            example: 00000000-0000-0000-0000-000000000000
+            example: /images/hero.png
       responses:
         '200':
           description: The asset
@@ -225,19 +228,18 @@ paths:
                 $ref: '#/components/schemas/Error'
     delete:
       summary: Delete an asset
-      description: Delete an asset by ID. Admin only. Deleting a folder will fail if it still contains any files or subfolders.
+      description: Delete an asset by full path. Admin only. Deleting a folder will fail if it still contains any files or subfolders.
       security:
         - googleCookieAuth: [admin]
         - googleBearerAuth: [admin]
       parameters:
-        - name: id
-          in: path
-          description: ID of the asset
+        - name: path
+          in: query
+          description: Full path to the asset (e.g., "/foo/bar.txt")
           required: true
           schema:
             type: string
-            format: uuid
-            example: 00000000-0000-0000-0000-000000000000
+            example: /images/hero.png
       responses:
         '204':
           description: Asset deleted successfully.
@@ -266,7 +268,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /assets/v1/{id}/confirm:
+  /assets/v1/by-path/confirm:
     post:
       summary: Confirm file upload
       description: Confirms that a file has been uploaded to S3. Admin only.
@@ -274,14 +276,13 @@ paths:
         - googleCookieAuth: [admin]
         - googleBearerAuth: [admin]
       parameters:
-        - name: id
-          in: path
-          description: ID of the file
+        - name: path
+          in: query
+          description: Full path to the file (e.g., "/foo/bar.txt")
           required: true
           schema:
             type: string
-            format: uuid
-            example: 00000000-0000-0000-0000-000000000000
+            example: /images/hero.png
       responses:
         '200':
           description: File confirmed successfully.
@@ -516,6 +517,7 @@ components:
       required:
         - fileId
         - uploadUrl
+        - formFields
         - expiresAt
       properties:
         fileId:
@@ -525,8 +527,21 @@ components:
           example: 00000000-0000-0000-0000-000000000000
         uploadUrl:
           type: string
-          description: Presigned URL to upload the file to
-          example: https://icaa-assets.s3.amazonaws.com/abc123?X-Amz-...
+          description: Presigned POST URL to upload the file to
+          example: https://icaa-assets.s3.amazonaws.com/
+        formFields:
+          type: object
+          description: Form fields that must be included in the multipart/form-data POST request. The file itself must be added last with the field name 'file'.
+          additionalProperties:
+            type: string
+          example:
+            key: "00000000-0000-0000-0000-000000000000"
+            Content-Type: "image/png"
+            X-Amz-Algorithm: "AWS4-HMAC-SHA256"
+            X-Amz-Credential: "AKIAIOSFODNN7EXAMPLE/20240119/us-east-1/s3/aws4_request"
+            X-Amz-Date: "20240119T120000Z"
+            Policy: "eyJleHBpcmF0aW9uIjoiMjAyNC0wMS0xOVQxMzowMDowMFoiLCJjb25kaXRpb25zIjpbeyJidWNrZXQiOiJpY2FhLWFzc2V0cyJ9LFsiZXEiLCIka2V5IiwiMDAwMDAwMDAtMDAwMC0wMDAwLTAwMDAtMDAwMDAwMDAwMDAwIl0sWyJlcSIsIiRDb250ZW50LVR5cGUiLCJpbWFnZS9wbmciXSxbImNvbnRlbnQtbGVuZ3RoLXJhbmdlIiwxLDI2MjE0NDAwXV19"
+            X-Amz-Signature: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
         expiresAt:
           type: string
           format: date-time

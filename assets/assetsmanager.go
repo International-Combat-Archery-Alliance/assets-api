@@ -1,0 +1,162 @@
+package assets
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+const (
+	maxUploadSize = 25 * 1024 * 1024 // 25MB
+	uploadTTL     = 1 * time.Hour
+)
+
+type AssetsManager struct {
+	storageRepo  StorageRepository
+	metadataRepo MetadataRepository
+}
+
+func NewAssetsManager(storageRepo StorageRepository, metadataRepo MetadataRepository) *AssetsManager {
+	return &AssetsManager{
+		storageRepo:  storageRepo,
+		metadataRepo: metadataRepo,
+	}
+}
+
+func (am *AssetsManager) GetAsset(ctx context.Context, fullPath string) (Asset, error) {
+	return am.metadataRepo.GetAsset(ctx, fullPath)
+}
+
+func (am *AssetsManager) GetAssets(ctx context.Context, path string, limit int32, cursor *string) (GetAssetsResponse, error) {
+	return am.metadataRepo.GetAssets(ctx, path, limit, cursor)
+}
+
+func (am *AssetsManager) CreateFolder(
+	ctx context.Context,
+	path string,
+	name string,
+	description *string,
+	createdBy string,
+) (*Folder, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	folder := &Folder{
+		ID:           id,
+		Path:         path,
+		Name:         name,
+		Description:  description,
+		ContentCount: 0,
+		CreatedAt:    now,
+		CreatedBy:    createdBy,
+	}
+
+	err := am.metadataRepo.CreateAsset(ctx, folder)
+	if err != nil {
+		return nil, err
+	}
+
+	return folder, nil
+}
+
+func (am *AssetsManager) CreateFileUpload(
+	ctx context.Context,
+	path string,
+	name string,
+	description *string,
+	contentType string,
+	createdBy string,
+) (*PresignedUploadResult, *File, error) {
+	id := uuid.New()
+	now := time.Now().UTC()
+
+	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, id, contentType, uploadTTL, maxUploadSize)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	file := &File{
+		ID:          id,
+		Path:        path,
+		Name:        name,
+		Description: description,
+		ContentType: contentType,
+		Size:        0, // updated on confirm
+		ObjectKey:   am.storageRepo.GenerateObjectKey(id),
+		Status:      StatusPending,
+		CreatedAt:   now,
+		CreatedBy:   createdBy,
+		ExpiresAt:   &result.ExpiresAt,
+	}
+	err = am.metadataRepo.CreateAsset(ctx, file)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &result, file, nil
+}
+
+func (am *AssetsManager) ConfirmFileUpload(
+	ctx context.Context,
+	fullPath string,
+) (*File, error) {
+	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
+	if err != nil {
+		return nil, err
+	}
+
+	file, ok := asset.(*File)
+	if !ok {
+		return nil, NewNotAFileError(fmt.Sprintf("%q is not a file", fullPath))
+	}
+
+	// If already confirmed, do nothing
+	if file.Status == StatusConfirmed {
+		return file, nil
+	}
+
+	headResult, err := am.storageRepo.HeadObject(ctx, file.ID)
+	if err != nil {
+		return nil, NewFailedToFetchError(fmt.Sprintf("%q failed to fetch from storage", fullPath), err)
+	}
+
+	if !headResult.Exists {
+		return nil, NewAssetNotUploadedError(fmt.Sprintf("%q does not exist in storage", fullPath))
+	}
+
+	file.ExpiresAt = nil
+	file.Size = headResult.Size
+	file.Status = StatusConfirmed
+	file.Version += 1
+
+	err = am.metadataRepo.UpdateAsset(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
+func (am *AssetsManager) DeleteAsset(ctx context.Context, fullPath string) error {
+	// Get asset first to determine type and get S3 key if it's a file
+	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
+	if err != nil {
+		return err
+	}
+
+	// If it's a file, delete from storage first
+	if file, ok := asset.(*File); ok {
+		if err := am.storageRepo.DeleteObject(ctx, file.ID); err != nil {
+			return err
+		}
+	}
+
+	// Delete from metadata
+	if err := am.metadataRepo.DeleteAsset(ctx, fullPath); err != nil {
+		return err
+	}
+
+	return nil
+}

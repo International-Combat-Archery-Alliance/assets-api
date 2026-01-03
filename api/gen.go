@@ -156,7 +156,10 @@ type UploadResponse struct {
 	// FileId ID of the file (use this to confirm the upload)
 	FileId openapi_types.UUID `json:"fileId"`
 
-	// UploadUrl Presigned URL to upload the file to
+	// FormFields Form fields that must be included in the multipart/form-data POST request. The file itself must be added last with the field name 'file'.
+	FormFields map[string]string `json:"formFields"`
+
+	// UploadUrl Presigned POST URL to upload the file to
 	UploadUrl string `json:"uploadUrl"`
 }
 
@@ -170,6 +173,24 @@ type GetAssetsV1Params struct {
 
 	// Limit Max number of assets to fetch
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// DeleteAssetsV1ByPathParams defines parameters for DeleteAssetsV1ByPath.
+type DeleteAssetsV1ByPathParams struct {
+	// Path Full path to the asset (e.g., "/foo/bar.txt")
+	Path string `form:"path" json:"path"`
+}
+
+// GetAssetsV1ByPathParams defines parameters for GetAssetsV1ByPath.
+type GetAssetsV1ByPathParams struct {
+	// Path Full path to the asset (e.g., "/foo/bar.txt" or "/" for root)
+	Path string `form:"path" json:"path"`
+}
+
+// PostAssetsV1ByPathConfirmParams defines parameters for PostAssetsV1ByPathConfirm.
+type PostAssetsV1ByPathConfirmParams struct {
+	// Path Full path to the file (e.g., "/foo/bar.txt")
+	Path string `form:"path" json:"path"`
 }
 
 // PostAssetsV1FoldersJSONRequestBody defines body for PostAssetsV1Folders for application/json ContentType.
@@ -272,21 +293,21 @@ type ServerInterface interface {
 	// Get all assets at a path
 	// (GET /assets/v1)
 	GetAssetsV1(w http.ResponseWriter, r *http.Request, params GetAssetsV1Params)
+	// Delete an asset
+	// (DELETE /assets/v1/by-path)
+	DeleteAssetsV1ByPath(w http.ResponseWriter, r *http.Request, params DeleteAssetsV1ByPathParams)
+	// Get an asset
+	// (GET /assets/v1/by-path)
+	GetAssetsV1ByPath(w http.ResponseWriter, r *http.Request, params GetAssetsV1ByPathParams)
+	// Confirm file upload
+	// (POST /assets/v1/by-path/confirm)
+	PostAssetsV1ByPathConfirm(w http.ResponseWriter, r *http.Request, params PostAssetsV1ByPathConfirmParams)
 	// Create a folder
 	// (POST /assets/v1/folders)
 	PostAssetsV1Folders(w http.ResponseWriter, r *http.Request)
 	// Get a presigned upload URL
 	// (POST /assets/v1/upload-url)
 	PostAssetsV1UploadUrl(w http.ResponseWriter, r *http.Request)
-	// Delete an asset
-	// (DELETE /assets/v1/{id})
-	DeleteAssetsV1Id(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
-	// Get an asset
-	// (GET /assets/v1/{id})
-	GetAssetsV1Id(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
-	// Confirm file upload
-	// (POST /assets/v1/{id}/confirm)
-	PostAssetsV1IdConfirm(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -302,6 +323,14 @@ type MiddlewareFunc func(http.Handler) http.Handler
 func (siw *ServerInterfaceWrapper) GetAssetsV1(w http.ResponseWriter, r *http.Request) {
 
 	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetAssetsV1Params
@@ -348,6 +377,132 @@ func (siw *ServerInterfaceWrapper) GetAssetsV1(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteAssetsV1ByPath operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAssetsV1ByPath(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteAssetsV1ByPathParams
+
+	// ------------- Required query parameter "path" -------------
+
+	if paramValue := r.URL.Query().Get("path"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "path", r.URL.Query(), &params.Path)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAssetsV1ByPath(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAssetsV1ByPath operation middleware
+func (siw *ServerInterfaceWrapper) GetAssetsV1ByPath(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetAssetsV1ByPathParams
+
+	// ------------- Required query parameter "path" -------------
+
+	if paramValue := r.URL.Query().Get("path"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "path", r.URL.Query(), &params.Path)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAssetsV1ByPath(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostAssetsV1ByPathConfirm operation middleware
+func (siw *ServerInterfaceWrapper) PostAssetsV1ByPathConfirm(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PostAssetsV1ByPathConfirmParams
+
+	// ------------- Required query parameter "path" -------------
+
+	if paramValue := r.URL.Query().Get("path"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "path", r.URL.Query(), &params.Path)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostAssetsV1ByPathConfirm(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PostAssetsV1Folders operation middleware
 func (siw *ServerInterfaceWrapper) PostAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
 
@@ -383,97 +538,6 @@ func (siw *ServerInterfaceWrapper) PostAssetsV1UploadUrl(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostAssetsV1UploadUrl(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteAssetsV1Id operation middleware
-func (siw *ServerInterfaceWrapper) DeleteAssetsV1Id(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
-
-	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteAssetsV1Id(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetAssetsV1Id operation middleware
-func (siw *ServerInterfaceWrapper) GetAssetsV1Id(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAssetsV1Id(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PostAssetsV1IdConfirm operation middleware
-func (siw *ServerInterfaceWrapper) PostAssetsV1IdConfirm(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
-
-	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PostAssetsV1IdConfirm(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -604,11 +668,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc("GET "+options.BaseURL+"/assets/v1", wrapper.GetAssetsV1)
+	m.HandleFunc("DELETE "+options.BaseURL+"/assets/v1/by-path", wrapper.DeleteAssetsV1ByPath)
+	m.HandleFunc("GET "+options.BaseURL+"/assets/v1/by-path", wrapper.GetAssetsV1ByPath)
+	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/by-path/confirm", wrapper.PostAssetsV1ByPathConfirm)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/folders", wrapper.PostAssetsV1Folders)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/upload-url", wrapper.PostAssetsV1UploadUrl)
-	m.HandleFunc("DELETE "+options.BaseURL+"/assets/v1/{id}", wrapper.DeleteAssetsV1Id)
-	m.HandleFunc("GET "+options.BaseURL+"/assets/v1/{id}", wrapper.GetAssetsV1Id)
-	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/{id}/confirm", wrapper.PostAssetsV1IdConfirm)
 
 	return m
 }
@@ -646,6 +710,168 @@ func (response GetAssetsV1400JSONResponse) VisitGetAssetsV1Response(w http.Respo
 type GetAssetsV1500JSONResponse Error
 
 func (response GetAssetsV1500JSONResponse) VisitGetAssetsV1Response(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteAssetsV1ByPathRequestObject struct {
+	Params DeleteAssetsV1ByPathParams
+}
+
+type DeleteAssetsV1ByPathResponseObject interface {
+	VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error
+}
+
+type DeleteAssetsV1ByPath204Response struct {
+}
+
+func (response DeleteAssetsV1ByPath204Response) VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAssetsV1ByPath400JSONResponse Error
+
+func (response DeleteAssetsV1ByPath400JSONResponse) VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteAssetsV1ByPath401JSONResponse Error
+
+func (response DeleteAssetsV1ByPath401JSONResponse) VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteAssetsV1ByPath404JSONResponse Error
+
+func (response DeleteAssetsV1ByPath404JSONResponse) VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteAssetsV1ByPath500JSONResponse Error
+
+func (response DeleteAssetsV1ByPath500JSONResponse) VisitDeleteAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAssetsV1ByPathRequestObject struct {
+	Params GetAssetsV1ByPathParams
+}
+
+type GetAssetsV1ByPathResponseObject interface {
+	VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error
+}
+
+type GetAssetsV1ByPath200JSONResponse struct {
+	Asset Asset `json:"asset"`
+}
+
+func (response GetAssetsV1ByPath200JSONResponse) VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAssetsV1ByPath400JSONResponse Error
+
+func (response GetAssetsV1ByPath400JSONResponse) VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAssetsV1ByPath404JSONResponse Error
+
+func (response GetAssetsV1ByPath404JSONResponse) VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAssetsV1ByPath500JSONResponse Error
+
+func (response GetAssetsV1ByPath500JSONResponse) VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirmRequestObject struct {
+	Params PostAssetsV1ByPathConfirmParams
+}
+
+type PostAssetsV1ByPathConfirmResponseObject interface {
+	VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error
+}
+
+type PostAssetsV1ByPathConfirm200JSONResponse struct {
+	File File `json:"file"`
+}
+
+func (response PostAssetsV1ByPathConfirm200JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirm400JSONResponse Error
+
+func (response PostAssetsV1ByPathConfirm400JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirm401JSONResponse Error
+
+func (response PostAssetsV1ByPathConfirm401JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirm404JSONResponse Error
+
+func (response PostAssetsV1ByPathConfirm404JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirm409JSONResponse Error
+
+func (response PostAssetsV1ByPathConfirm409JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathConfirm500JSONResponse Error
+
+func (response PostAssetsV1ByPathConfirm500JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
 
@@ -769,188 +995,26 @@ func (response PostAssetsV1UploadUrl500JSONResponse) VisitPostAssetsV1UploadUrlR
 	return json.NewEncoder(w).Encode(response)
 }
 
-type DeleteAssetsV1IdRequestObject struct {
-	Id openapi_types.UUID `json:"id"`
-}
-
-type DeleteAssetsV1IdResponseObject interface {
-	VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error
-}
-
-type DeleteAssetsV1Id204Response struct {
-}
-
-func (response DeleteAssetsV1Id204Response) VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.WriteHeader(204)
-	return nil
-}
-
-type DeleteAssetsV1Id400JSONResponse Error
-
-func (response DeleteAssetsV1Id400JSONResponse) VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteAssetsV1Id401JSONResponse Error
-
-func (response DeleteAssetsV1Id401JSONResponse) VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteAssetsV1Id404JSONResponse Error
-
-func (response DeleteAssetsV1Id404JSONResponse) VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type DeleteAssetsV1Id500JSONResponse Error
-
-func (response DeleteAssetsV1Id500JSONResponse) VisitDeleteAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetAssetsV1IdRequestObject struct {
-	Id openapi_types.UUID `json:"id"`
-}
-
-type GetAssetsV1IdResponseObject interface {
-	VisitGetAssetsV1IdResponse(w http.ResponseWriter) error
-}
-
-type GetAssetsV1Id200JSONResponse struct {
-	Asset Asset `json:"asset"`
-}
-
-func (response GetAssetsV1Id200JSONResponse) VisitGetAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetAssetsV1Id400JSONResponse Error
-
-func (response GetAssetsV1Id400JSONResponse) VisitGetAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetAssetsV1Id404JSONResponse Error
-
-func (response GetAssetsV1Id404JSONResponse) VisitGetAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type GetAssetsV1Id500JSONResponse Error
-
-func (response GetAssetsV1Id500JSONResponse) VisitGetAssetsV1IdResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirmRequestObject struct {
-	Id openapi_types.UUID `json:"id"`
-}
-
-type PostAssetsV1IdConfirmResponseObject interface {
-	VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error
-}
-
-type PostAssetsV1IdConfirm200JSONResponse struct {
-	File File `json:"file"`
-}
-
-func (response PostAssetsV1IdConfirm200JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirm400JSONResponse Error
-
-func (response PostAssetsV1IdConfirm400JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirm401JSONResponse Error
-
-func (response PostAssetsV1IdConfirm401JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirm404JSONResponse Error
-
-func (response PostAssetsV1IdConfirm404JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirm409JSONResponse Error
-
-func (response PostAssetsV1IdConfirm409JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
-type PostAssetsV1IdConfirm500JSONResponse Error
-
-func (response PostAssetsV1IdConfirm500JSONResponse) VisitPostAssetsV1IdConfirmResponse(w http.ResponseWriter) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-
-	return json.NewEncoder(w).Encode(response)
-}
-
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Get all assets at a path
 	// (GET /assets/v1)
 	GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject) (GetAssetsV1ResponseObject, error)
+	// Delete an asset
+	// (DELETE /assets/v1/by-path)
+	DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1ByPathRequestObject) (DeleteAssetsV1ByPathResponseObject, error)
+	// Get an asset
+	// (GET /assets/v1/by-path)
+	GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRequestObject) (GetAssetsV1ByPathResponseObject, error)
+	// Confirm file upload
+	// (POST /assets/v1/by-path/confirm)
+	PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV1ByPathConfirmRequestObject) (PostAssetsV1ByPathConfirmResponseObject, error)
 	// Create a folder
 	// (POST /assets/v1/folders)
 	PostAssetsV1Folders(ctx context.Context, request PostAssetsV1FoldersRequestObject) (PostAssetsV1FoldersResponseObject, error)
 	// Get a presigned upload URL
 	// (POST /assets/v1/upload-url)
 	PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1UploadUrlRequestObject) (PostAssetsV1UploadUrlResponseObject, error)
-	// Delete an asset
-	// (DELETE /assets/v1/{id})
-	DeleteAssetsV1Id(ctx context.Context, request DeleteAssetsV1IdRequestObject) (DeleteAssetsV1IdResponseObject, error)
-	// Get an asset
-	// (GET /assets/v1/{id})
-	GetAssetsV1Id(ctx context.Context, request GetAssetsV1IdRequestObject) (GetAssetsV1IdResponseObject, error)
-	// Confirm file upload
-	// (POST /assets/v1/{id}/confirm)
-	PostAssetsV1IdConfirm(ctx context.Context, request PostAssetsV1IdConfirmRequestObject) (PostAssetsV1IdConfirmResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -1001,6 +1065,84 @@ func (sh *strictHandler) GetAssetsV1(w http.ResponseWriter, r *http.Request, par
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetAssetsV1ResponseObject); ok {
 		if err := validResponse.VisitGetAssetsV1Response(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAssetsV1ByPath operation middleware
+func (sh *strictHandler) DeleteAssetsV1ByPath(w http.ResponseWriter, r *http.Request, params DeleteAssetsV1ByPathParams) {
+	var request DeleteAssetsV1ByPathRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAssetsV1ByPath(ctx, request.(DeleteAssetsV1ByPathRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAssetsV1ByPath")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAssetsV1ByPathResponseObject); ok {
+		if err := validResponse.VisitDeleteAssetsV1ByPathResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAssetsV1ByPath operation middleware
+func (sh *strictHandler) GetAssetsV1ByPath(w http.ResponseWriter, r *http.Request, params GetAssetsV1ByPathParams) {
+	var request GetAssetsV1ByPathRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAssetsV1ByPath(ctx, request.(GetAssetsV1ByPathRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAssetsV1ByPath")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAssetsV1ByPathResponseObject); ok {
+		if err := validResponse.VisitGetAssetsV1ByPathResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PostAssetsV1ByPathConfirm operation middleware
+func (sh *strictHandler) PostAssetsV1ByPathConfirm(w http.ResponseWriter, r *http.Request, params PostAssetsV1ByPathConfirmParams) {
+	var request PostAssetsV1ByPathConfirmRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PostAssetsV1ByPathConfirm(ctx, request.(PostAssetsV1ByPathConfirmRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostAssetsV1ByPathConfirm")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PostAssetsV1ByPathConfirmResponseObject); ok {
+		if err := validResponse.VisitPostAssetsV1ByPathConfirmResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -1070,127 +1212,57 @@ func (sh *strictHandler) PostAssetsV1UploadUrl(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// DeleteAssetsV1Id operation middleware
-func (sh *strictHandler) DeleteAssetsV1Id(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
-	var request DeleteAssetsV1IdRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteAssetsV1Id(ctx, request.(DeleteAssetsV1IdRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteAssetsV1Id")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteAssetsV1IdResponseObject); ok {
-		if err := validResponse.VisitDeleteAssetsV1IdResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetAssetsV1Id operation middleware
-func (sh *strictHandler) GetAssetsV1Id(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
-	var request GetAssetsV1IdRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetAssetsV1Id(ctx, request.(GetAssetsV1IdRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetAssetsV1Id")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetAssetsV1IdResponseObject); ok {
-		if err := validResponse.VisitGetAssetsV1IdResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PostAssetsV1IdConfirm operation middleware
-func (sh *strictHandler) PostAssetsV1IdConfirm(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
-	var request PostAssetsV1IdConfirmRequestObject
-
-	request.Id = id
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PostAssetsV1IdConfirm(ctx, request.(PostAssetsV1IdConfirmRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PostAssetsV1IdConfirm")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PostAssetsV1IdConfirmResponseObject); ok {
-		if err := validResponse.VisitPostAssetsV1IdConfirmResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"H4sIAAAAAAAC/+xai2/bNhP/Vwh+H7AV8EN24q4xMOBTnDh1ZjtZ3stWDJR0tplKpEZScZTC//sHkpIs",
+	"28prTdeiWIFslkjdHY93v/vx8Qn7PIo5A6Yk7n7C0p9BRMxPV0pQ+kdApS9oRBlRXOgXEYljyqb654SG",
+	"gLv4P82lmGYmo9nXbTU84WEA4sFOtnVRw7HgMQiVjkmkRao0Bv2aMzia4O7vn/B/BUwe1bWoPdEp0/Vh",
+	"UbOjO9M6up8wsCTC3d/taAqLP9Qw3JEoNiPMmoxVXSyV0A5Y1HBPAFFgJZ/AXwlI47NsMBSMKwPQHowV",
+	"5WzjER+ZHyREpdeIT5CaAcosKRsyiMgUJJpwYXrMeAQxmQLyieCJhBDXcETuhsCmaoa7LcdxKqxmxsfr",
+	"lmjPr2pGiiPfjHDFhmpd7U6nhiPKCt0VimOiW9YVHxMBTOU6dR/0YyIB/YGbf2AzVMG5erNiQ5MaR2zO",
+	"yaKGBfyVUAGBnlOjMRvxh6Iz927AV9qifSFsVK9Omc8D46HH4sl82tMdFzUcgZRkasOpMNJlKGFwF4Ov",
+	"IECg+yPu+4kQEDSeNN3YsJT8oPW9zNY8jAdMgWAktEOr4SGNqDpK1NFklycs0D4bsFsS0qCXCGm6jLnq",
+	"6zZcw/tRrNJdHqTLbtmTGwogQbp/R6WyQuJEXegORE9krs5N1Kz4rdNszNV5HHISgJavU/WM8yERUz06",
+	"mzpjroxeXMuCoXidmzXmys0Q5QKEpJz1OJuE1FclxywDzXStmFWmgC3zvpgoE0zNmE030qdCts2IwFWr",
+	"MtpOu1N33tVbO2etd93tt93OVqP1rnNtEEVEROEuDoiCuqKRHoZ25hELU9xVIoGH9eymmxmzHxEa5rlK",
+	"gogyNJ9xlGRutilsvbU00PT7H/UJacy5CIPn2LAGXUthI0IZmoHgyCOMgfhMRKLBqngn+1ev+E/+r+zY",
+	"JKHPGk+OfEtNegx1O4bGRgC8JqZVwVez5KQNwZLeV6C0jmykmxBlyEuVwcBCcMvZftf56W3JM5Spt9tL",
+	"8ZQpmNqKKxVRiXwK5bS+U9tzkUt5/ItlbV3UcCLCzTH09sbo/GRYxMxGqM6UimW32SRalGwsY7ZJPL/V",
+	"3noSO02rCavaSgmorWBA5mNrZeGQcoaXs7AKgEveKSFwDCygJpZ8ziZURBCs0onl6yrsyhjTA+jV4wlT",
+	"FdU7iTwQGhOogkiiH7VTJSIsyIJQvkEBFeCrMNWho2ZUVhCMTlWkfLuIl33xEFt6Vch7Fer19YDuy7O2",
+	"5xG0F4PIS1PbJshLstjSkwf5+xptWHXDaDDaR1piQZ3XwexF5OLvrxXW1b5yhdbyx5XrhiNBp1Rbpbug",
+	"bC6+QoFF8xkIKJyB5jQMkQdIKi4M0r6k/FYvIwonrNaRx2JKxpzJCi4KdzEVIN0KKL+cATPDiAVIOmUQ",
+	"mGqZfbEykDIE7zwDgiundRBs2jDYKweWXY+ZkqGXhLZ6mVZLOVfXZn8T0zZt4yLqUwgD4zASBNSG//GK",
+	"Ix9PIdznIkITIwWpGVEoSqTSYUGZHyaaLFPr7CgJFY2JUE2ttx4QRdDx0ekZEhYXGugs9wZVEsJJIYkE",
+	"WkxIpEJzqmaZ1yAMTDKgH/Q3PzTKLvqEezZ86mdZsS1hxDEPqZ/iLob0MIT3u7Ef9R1yuZMMbjgd3bjp",
+	"uOfMR6fO3dHFr3ejez4f7fH5qM/psHd447U7H8nVSey1O/eDm9iD9JAGl2NxffUrPaKH8W/t/mx42b/3",
+	"2xeOnx7uDPuSXl/t02Fv8JG0LzoDOqejPXee/Snzf61vz50Pz0rvSn+D0JGX6WHonw7kgJ7see2Oc33Z",
+	"cYYXJx3/4FzbFXuXfXZ9ujP3Ip9end55g2h867GT0GO/Ku/gIrneOuHDq8OZFwXhgM7vhnuD9uhm3xnv",
+	"ufOri9YOruGruhvd191wygVVs0ivry9Pt+vvR26vfvrebXfeFp16AgJgipJQ9/pl4A6OTvtHe+PxT/tX",
+	"7uh4uN9sO+1tp9XaaSayDkSqeqspt5pkLrf/zOa7ELZHVJZq5ouzVlsH8HXRfkqnjKhEGMLh+QFMWu2t",
+	"7c7bn97tOC99xjX8EdLn5tCiAndsQp5X0e7jAk5MXGtMUfmicZnqildScU2i6hkfl1sNEpF7zshcNnwe",
+	"NZ/Ezwxmyuat5HethIebaKoXK+Angqr0VPMDm/hTzqch7AIRINzE1gjPPPVzZDm8PNO83nyDu1nr0lg9",
+	"Nu0zK6nH+UcKuSTKDE/Xr3KG0cUHR0cHw/0/3fOz939a2ZkkEtNfIMULbSplE77pfJch93hginBEGJlS",
+	"NkXWnZVUPS/Wg57rojl4kiowW0ZUWTKq37v2e/d4gGv41m6L4C5uNZyGCQ4eAyMxxV28ZV7ZWmqcly2t",
+	"mrct40qoKEMnoASFW20ZCqlUuiCQMHzMaqKM0TIGn04oBDkt1HhtNol0qcEHoKzlFy1jkiARKBDSbPOu",
+	"V3mNp9zqzxRPBI8e2iA0s/ZXAiJdTlpmwzIcLWW2THOVI1cG8sbq1eyaGbWxnkczsAd0+/kOW5W239o7",
+	"yfXW4Sx4P5KD9+FtcLobeVsXyXVv1yEH59Pry/59cHCRDg4u2PX855+fY9yI3CFWLAUzjymOJqD82QNG",
+	"hjSiasXGACYkCRXutp0SFuiHiNzRSK9yDX2NKMueNpeNiw/a55b+mJBrO06JTZuSHsch9Y3/mjfSMt6l",
+	"EWsk3HrylR1Y0+zIaDOr5metSkqwS4QgqX6eETmGO3W8vgW8sjrzOA+BsA1wNCasyqjAwA1m4y6z0sKy",
+	"NmT7hU5+coO7SvMuCQpWpJV2/gml5+wj43OGJIhbEHY3vbFSGwx+bGL573YbAH/Q2bJZNJbNH2pYJlFE",
+	"RGpBqox2RCFi0UxrXKJn00vrywVKCKpigbRn3iPCrDDkpWiShKER10Cu2czgLEwbyPQ0lSFf2JhFzITQ",
+	"ENEJogpJpV9oTxPKNPqmyOIwF0gmXobEjQ3MtTbksLubHltQfBR8+7mRGkDMvosx/0doTBs1Db4Tzpse",
+	"EQ11p/7ArwG/2bJMLxmzteI64G2CynZFrTV22ukIkEx8H6TULk+/So7kHsumlHGFIIpV+iazpvVPJA9J",
+	"1IwLeg9BpnX7y2u186DHO+EJC75brFhLcEMpqxiVxhTOijwydNswCR0Xb1Zw4THS9CWyV9vx+nTq7+Tz",
+	"55AEkl9aeEYRXyvC9tPn1N2z3Jdfrd7+m7yvXeiLzK0s7s1sx8sEHJcVmd2zHbItJmJX0jMikQfASuey",
+	"HJ1urZT8jTw/5nIt0TPZL853u3H3bRXrz0nuSXam//RFoIrNh2dltjlbLc7mviHiYDbWuVoGUgqqpiHb",
+	"YjqVptWG3XfPKvq5N5a4tO3sfHm92b0TEyAh9fMCPicSRTyw+x1eigjjagYin8M33y1wZrhko9NG5jp+",
+	"ZsuRR3DTnMtJRBCDeU6QK3eRno+a/UypBQGQytxfei3vV934qwpSOxRz7qiDJgBFaCg3sHWxAZGtz4HI",
+	"4urAcy5CrsNkce/xaaAsje5bAMrvHfJWDzu/AvZlE07sFUAE5g7g94tsJq6LTZh1VLNYV8+uNlUD2wmo",
+	"RDANbKuHuHp1Zb/Ptnk0eBb3cjb5oTl0jFem3xw7mhl4HAfPS0ctXwIJV29NVM2aPVnKyczzIdB5dRuz",
+	"U/iq1CqmJzsI07NEWJBRq8Hev4D2DwPad7vILEHBMtascU8pfUibVWPGUHl8JniQ+IaA2E7ZXcfSDcuY",
+	"lq9X4s0TpSH3zY2j2yoR3WYz1O0zLlV3y3GcJl58WPw/AAD//wRL2p9XMgAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

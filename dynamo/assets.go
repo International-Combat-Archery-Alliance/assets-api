@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
+	"github.com/International-Combat-Archery-Alliance/assets-api/ptr"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
@@ -26,8 +29,6 @@ const (
 type assetDynamo struct {
 	PK          string  `dynamodbav:"PK"`
 	SK          string  `dynamodbav:"SK"`
-	GSI1PK      string  `dynamodbav:"GSI1PK"`
-	GSI1SK      string  `dynamodbav:"GSI1SK"`
 	ID          string  `dynamodbav:"ID"`
 	Type        string  `dynamodbav:"Type"`
 	Path        string  `dynamodbav:"Path"`
@@ -42,33 +43,30 @@ type assetDynamo struct {
 	Size        *int64  `dynamodbav:"Size,omitempty"`
 	ObjectKey   *string `dynamodbav:"ObjectKey,omitempty"`
 	Status      *string `dynamodbav:"Status,omitempty"`
+	TTL         *int64  `dynamodbav:"TTL,omitempty"`
 
 	// Folder-specific fields
 	ContentCount *int `dynamodbav:"ContentCount,omitempty"`
 }
 
-func assetPK(id uuid.UUID) string {
-	return fmt.Sprintf("ASSET#%s", id)
-}
-
-func assetSK(id uuid.UUID) string {
-	return fmt.Sprintf("ASSET#%s", id)
-}
-
-func pathGSI1PK(path string) string {
+func pathPK(path string) string {
 	return fmt.Sprintf("PATH#%s", path)
 }
 
-func pathGSI1SK(createdAt time.Time, assetType string, id uuid.UUID) string {
-	return fmt.Sprintf("CREATED#%s#%s#%s", createdAt.UTC().Format(time.RFC3339Nano), assetType, id)
+func nameSK(name string) string {
+	return fmt.Sprintf("NAME#%s", name)
 }
 
 func newFileDynamo(file *assets.File) assetDynamo {
+	var ttl *int64
+
+	if file.ExpiresAt != nil {
+		ttl = ptr.Int64(file.ExpiresAt.Unix())
+	}
+
 	return assetDynamo{
-		PK:          assetPK(file.ID),
-		SK:          assetSK(file.ID),
-		GSI1PK:      pathGSI1PK(file.Path),
-		GSI1SK:      pathGSI1SK(file.CreatedAt, assetTypeFile, file.ID),
+		PK:          pathPK(file.Path),
+		SK:          nameSK(file.Name),
 		ID:          file.ID.String(),
 		Type:        assetTypeFile,
 		Path:        file.Path,
@@ -80,16 +78,15 @@ func newFileDynamo(file *assets.File) assetDynamo {
 		ContentType: &file.ContentType,
 		Size:        &file.Size,
 		ObjectKey:   &file.ObjectKey,
-		Status:      ptrString(string(file.Status)),
+		Status:      ptr.String(string(file.Status)),
+		TTL:         ttl,
 	}
 }
 
 func newFolderDynamo(folder *assets.Folder) assetDynamo {
 	return assetDynamo{
-		PK:           assetPK(folder.ID),
-		SK:           assetSK(folder.ID),
-		GSI1PK:       pathGSI1PK(folder.Path),
-		GSI1SK:       pathGSI1SK(folder.CreatedAt, assetTypeFolder, folder.ID),
+		PK:           pathPK(folder.Path),
+		SK:           nameSK(folder.Name),
 		ID:           folder.ID.String(),
 		Type:         assetTypeFolder,
 		Path:         folder.Path,
@@ -127,6 +124,9 @@ func assetFromDynamo(d assetDynamo) assets.Asset {
 		if d.Status != nil {
 			file.Status = assets.Status(*d.Status)
 		}
+		if d.TTL != nil {
+			file.ExpiresAt = ptr.Time(time.Unix(*d.TTL, 0))
+		}
 		return file
 	}
 
@@ -145,31 +145,29 @@ func assetFromDynamo(d assetDynamo) assets.Asset {
 	return folder
 }
 
-func ptrString(s string) *string {
-	return &s
-}
-
-// GetAsset retrieves a single asset by ID
-func (d *DB) GetAsset(ctx context.Context, id uuid.UUID) (assets.Asset, error) {
+// GetAsset retrieves a single asset by full path
+func (d *DB) GetAsset(ctx context.Context, fullPath string) (assets.Asset, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
+
+	parentPath, name := splitFullPath(fullPath)
 
 	resp, err := d.dynamoClient.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(d.tableName),
 		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: assetPK(id)},
-			"SK": &types.AttributeValueMemberS{Value: assetSK(id)},
+			"PK": &types.AttributeValueMemberS{Value: pathPK(parentPath)},
+			"SK": &types.AttributeValueMemberS{Value: nameSK(name)},
 		},
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return nil, assets.NewTimeoutError("GetAsset timed out")
 		}
-		return nil, assets.NewFailedToFetchError(fmt.Sprintf("failed to fetch asset with ID %q", id), err)
+		return nil, assets.NewFailedToFetchError(fmt.Sprintf("failed to fetch asset at path %q", fullPath), err)
 	}
 
 	if len(resp.Item) == 0 {
-		return nil, assets.NewNotFoundError(fmt.Sprintf("asset with ID %q not found", id), nil)
+		return nil, assets.NewNotFoundError(fmt.Sprintf("asset at path %q not found", fullPath), nil)
 	}
 
 	var asset assetDynamo
@@ -194,17 +192,16 @@ func (d *DB) GetAssets(ctx context.Context, path string, limit int32, cursor *st
 		}
 	}
 
-	// Query by path using GSI1
-	keyCond := expression.Key("GSI1PK").Equal(expression.Value(pathGSI1PK(path)))
+	// Query by path using main table (PK = PATH#{path})
+	keyCond := expression.Key("PK").Equal(expression.Value(pathPK(path)))
 	expr := exprMustBuild(expression.NewBuilder().WithKeyCondition(keyCond))
 
 	result, err := d.dynamoClient.Query(ctx, &dynamodb.QueryInput{
 		TableName:                 aws.String(d.tableName),
-		IndexName:                 aws.String(gsi1),
 		KeyConditionExpression:    expr.KeyCondition(),
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
-		ScanIndexForward:          aws.Bool(false), // Newest first
+		ScanIndexForward:          aws.Bool(true), // Alphabetical order by name
 		Limit:                     aws.Int32(limit + 1),
 		ExclusiveStartKey:         startKey,
 	})
@@ -245,7 +242,6 @@ func (d *DB) GetAssets(ctx context.Context, path string, limit int32, cursor *st
 	}, nil
 }
 
-// CreateAsset creates a new asset record (file or folder)
 func (d *DB) CreateAsset(ctx context.Context, asset assets.Asset) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
@@ -255,58 +251,43 @@ func (d *DB) CreateAsset(ctx context.Context, asset assets.Asset) error {
 
 	switch a := asset.(type) {
 	case *assets.File:
-		a.Version = 1 // Initialize version for new assets
 		dynamoItem = newFileDynamo(a)
 		parentPath = a.Path
 	case *assets.Folder:
-		a.Version = 1 // Initialize version for new assets
 		dynamoItem = newFolderDynamo(a)
 		parentPath = a.Path
 	default:
 		return assets.NewFailedToWriteError("unknown asset type", nil)
 	}
 
-	// Determine parent folder ID
-	var parentID uuid.UUID
-	if parentPath == assets.RootPath {
-		// Creating at root - use root folder as parent
-		parentID = assets.RootFolderID
-	} else {
-		// Validate parent folder exists
-		exists, id, err := d.folderExistsAtPath(ctx, parentPath)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			return assets.NewParentFolderNotFoundError(fmt.Sprintf("parent folder at path %q not found", parentPath))
-		}
-		parentID = id
-	}
-
 	// Use a transaction to create the asset and increment the parent's ContentCount
-	return d.createAssetWithContentCountUpdate(ctx, dynamoItem, parentID, 1)
+	// The transaction will verify the parent folder exists
+	return d.createAssetWithContentCountUpdate(ctx, dynamoItem, parentPath, 1)
 }
 
 // UpdateAsset updates an existing asset with optimistic locking.
 // The caller must increment the version before calling this method.
 // The repository will check that the current DB version is one less than the passed version.
+// NOTE: This does NOT support changing path or name (moves/renames). Those operations are not allowed.
 func (d *DB) UpdateAsset(ctx context.Context, asset assets.Asset) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
 	var dynamoItem assetDynamo
 	var newVersion int
-	var assetID string
+	var assetPath, assetName string
 
 	switch a := asset.(type) {
 	case *assets.File:
 		newVersion = a.Version
 		dynamoItem = newFileDynamo(a)
-		assetID = a.ID.String()
+		assetPath = a.Path
+		assetName = a.Name
 	case *assets.Folder:
 		newVersion = a.Version
 		dynamoItem = newFolderDynamo(a)
-		assetID = a.ID.String()
+		assetPath = a.Path
+		assetName = a.Name
 	default:
 		return assets.NewFailedToWriteError("unknown asset type", nil)
 	}
@@ -320,9 +301,12 @@ func (d *DB) UpdateAsset(ctx context.Context, asset assets.Asset) error {
 	}
 
 	// Condition: asset must exist AND current DB version must be one less than new version (optimistic locking)
+	// Also verify path and name haven't changed (disallow moves/renames)
 	cond := expression.And(
 		expression.AttributeExists(expression.Name("PK")),
 		expression.Name("Version").Equal(expression.Value(expectedDBVersion)),
+		expression.Name("Path").Equal(expression.Value(assetPath)),
+		expression.Name("Name").Equal(expression.Value(assetName)),
 	)
 	expr := exprMustBuild(expression.NewBuilder().WithCondition(cond))
 
@@ -336,11 +320,14 @@ func (d *DB) UpdateAsset(ctx context.Context, asset assets.Asset) error {
 	if err != nil {
 		var condCheckFailedErr *types.ConditionalCheckFailedException
 		if errors.As(err, &condCheckFailedErr) {
+			// Construct full path for error message using path.Join
+			fullPath := path.Join(assetPath, assetName)
+
 			// Check if the asset exists to distinguish between not found and version conflict
-			existingAsset, getErr := d.GetAsset(ctx, uuid.MustParse(assetID))
+			existingAsset, getErr := d.GetAsset(ctx, fullPath)
 			if getErr != nil {
 				if assets.IsNotFoundError(getErr) {
-					return assets.NewNotFoundError(fmt.Sprintf("asset with ID %q not found", assetID), err)
+					return assets.NewNotFoundError(fmt.Sprintf("asset at path %q not found", fullPath), err)
 				}
 				return getErr
 			}
@@ -364,18 +351,18 @@ func (d *DB) UpdateAsset(ctx context.Context, asset assets.Asset) error {
 	return nil
 }
 
-// DeleteAsset deletes an asset by ID
-func (d *DB) DeleteAsset(ctx context.Context, id uuid.UUID) error {
+// DeleteAsset deletes an asset by full path
+func (d *DB) DeleteAsset(ctx context.Context, fullPath string) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
 	// Prevent deletion of the root folder
-	if id == assets.RootFolderID {
+	if fullPath == "/" {
 		return assets.NewNotAllowedToDeleteRootError()
 	}
 
-	// First get the asset to determine its type and path
-	asset, err := d.GetAsset(ctx, id)
+	// First get the asset to determine its type
+	asset, err := d.GetAsset(ctx, fullPath)
 	if err != nil {
 		return err
 	}
@@ -392,114 +379,41 @@ func (d *DB) DeleteAsset(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 
-	// Determine parent folder ID
-	var parentID uuid.UUID
-	if parentPath == assets.RootPath {
-		// Deleting from root - use root folder as parent
-		parentID = assets.RootFolderID
-	} else {
-		// Find parent folder
-		exists, id, err := d.folderExistsAtPath(ctx, parentPath)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			// Parent doesn't exist (orphaned asset), just delete without ContentCount update
-			return d.deleteAssetSimple(ctx, id)
-		}
-		parentID = id
-	}
-
-	// Delete asset and decrement parent's ContentCount
-	return d.deleteAssetWithContentCountUpdate(ctx, id, parentID, -1)
-}
-
-// deleteAssetSimple deletes an asset without updating any parent's ContentCount
-func (d *DB) deleteAssetSimple(ctx context.Context, id uuid.UUID) error {
-	cond := expression.AttributeExists(expression.Name("PK"))
-	expr := exprMustBuild(expression.NewBuilder().WithCondition(cond))
-
-	_, err := d.dynamoClient.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(d.tableName),
-		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: assetPK(id)},
-			"SK": &types.AttributeValueMemberS{Value: assetSK(id)},
-		},
-		ConditionExpression:       expr.Condition(),
-		ExpressionAttributeNames:  expr.Names(),
-		ExpressionAttributeValues: expr.Values(),
-	})
-	if err != nil {
-		var condCheckFailedErr *types.ConditionalCheckFailedException
-		if errors.As(err, &condCheckFailedErr) {
-			return assets.NewNotFoundError(fmt.Sprintf("asset with ID %q not found", id), err)
-		} else if errors.Is(err, context.DeadlineExceeded) {
-			return assets.NewTimeoutError("DeleteAsset timed out")
-		}
-		return assets.NewFailedToDeleteError("failed to delete asset", err)
-	}
-
-	return nil
-}
-
-// folderExistsAtPath checks if a folder exists at the given path and returns its ID
-// The path is the full path of the folder, e.g., "/images/carousel"
-// We need to find a folder whose Path + "/" + Name equals the given fullPath
-func (d *DB) folderExistsAtPath(ctx context.Context, fullPath string) (bool, uuid.UUID, error) {
-	// Parse the path to get parent path and folder name
-	parentPath, folderName := splitPath(fullPath)
-
-	// Query GSI1 for folders at parentPath with the matching name
-	keyCond := expression.Key("GSI1PK").Equal(expression.Value(pathGSI1PK(parentPath)))
-	filter := expression.And(
-		expression.Name("Type").Equal(expression.Value(assetTypeFolder)),
-		expression.Name("Name").Equal(expression.Value(folderName)),
-	)
-	expr := exprMustBuild(expression.NewBuilder().WithKeyCondition(keyCond).WithFilter(filter))
-
-	result, err := d.dynamoClient.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 aws.String(d.tableName),
-		IndexName:                 aws.String(gsi1),
-		KeyConditionExpression:    expr.KeyCondition(),
-		FilterExpression:          expr.Filter(),
-		ExpressionAttributeNames:  expr.Names(),
-		ExpressionAttributeValues: expr.Values(),
-		Limit:                     aws.Int32(1),
-	})
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return false, uuid.Nil, assets.NewTimeoutError("folderExistsAtPath timed out")
-		}
-		return false, uuid.Nil, assets.NewFailedToFetchError("failed to check folder existence", err)
-	}
-
-	if len(result.Items) == 0 {
-		return false, uuid.Nil, nil
-	}
-
-	var folder assetDynamo
-	if err := attributevalue.UnmarshalMap(result.Items[0], &folder); err != nil {
-		panic(fmt.Sprintf("failed to unmarshal folder: %s", err))
-	}
-
-	return true, uuid.MustParse(folder.ID), nil
+	// Delete asset and decrement parent's ContentCount using transaction
+	return d.deleteAssetWithContentCountUpdate(ctx, fullPath, parentPath, -1)
 }
 
 // createAssetWithContentCountUpdate creates an asset and increments the parent folder's ContentCount
-func (d *DB) createAssetWithContentCountUpdate(ctx context.Context, asset assetDynamo, parentID uuid.UUID, delta int) error {
+func (d *DB) createAssetWithContentCountUpdate(ctx context.Context, asset assetDynamo, parentPath string, delta int) error {
 	item, err := attributevalue.MarshalMap(asset)
 	if err != nil {
 		return assets.NewFailedToWriteError("failed to marshal asset", err)
 	}
 
-	// Build the update expression for ContentCount
-	updateExpr := expression.Add(expression.Name("ContentCount"), expression.Value(delta))
-	parentCond := expression.AttributeExists(expression.Name("PK"))
-	parentExpr := exprMustBuild(expression.NewBuilder().WithUpdate(updateExpr).WithCondition(parentCond))
-
-	// Build the condition for the new asset
+	// Build the condition for the new asset (must not exist)
 	assetCond := expression.AttributeNotExists(expression.Name("PK"))
 	assetExpr := exprMustBuild(expression.NewBuilder().WithCondition(assetCond))
+
+	// Split parent path to get its PK/SK for ContentCount update
+	var parentPKValue, parentSKValue string
+	if parentPath == assets.RootPath {
+		// Root folder has special path
+		parentPKValue = pathPK("")
+		parentSKValue = nameSK("/")
+	} else {
+		grandparentPath, parentName := splitFullPath(parentPath)
+		parentPKValue = pathPK(grandparentPath)
+		parentSKValue = nameSK(parentName)
+	}
+
+	// Build the update expression for parent ContentCount
+	// Condition: parent must exist AND be a folder
+	updateExpr := expression.Add(expression.Name("ContentCount"), expression.Value(delta))
+	parentCond := expression.And(
+		expression.AttributeExists(expression.Name("PK")),
+		expression.Name("Type").Equal(expression.Value(assetTypeFolder)),
+	)
+	parentExpr := exprMustBuild(expression.NewBuilder().WithUpdate(updateExpr).WithCondition(parentCond))
 
 	_, err = d.dynamoClient.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 		TransactItems: []types.TransactWriteItem{
@@ -516,8 +430,8 @@ func (d *DB) createAssetWithContentCountUpdate(ctx context.Context, asset assetD
 				Update: &types.Update{
 					TableName: aws.String(d.tableName),
 					Key: map[string]types.AttributeValue{
-						"PK": &types.AttributeValueMemberS{Value: assetPK(parentID)},
-						"SK": &types.AttributeValueMemberS{Value: assetSK(parentID)},
+						"PK": &types.AttributeValueMemberS{Value: parentPKValue},
+						"SK": &types.AttributeValueMemberS{Value: parentSKValue},
 					},
 					UpdateExpression:          parentExpr.Update(),
 					ConditionExpression:       parentExpr.Condition(),
@@ -550,10 +464,25 @@ func (d *DB) createAssetWithContentCountUpdate(ctx context.Context, asset assetD
 }
 
 // deleteAssetWithContentCountUpdate deletes an asset and decrements the parent folder's ContentCount
-func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, assetID, parentID uuid.UUID, delta int) error {
+func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, fullPath, parentPath string, delta int) error {
+	// Split asset full path to get parent path and name
+	_, assetName := splitFullPath(fullPath)
+
 	// Build the delete condition
 	deleteCond := expression.AttributeExists(expression.Name("PK"))
 	deleteExpr := exprMustBuild(expression.NewBuilder().WithCondition(deleteCond))
+
+	// Split parent path to get its PK/SK for ContentCount update
+	var parentPKValue, parentSKValue string
+	if parentPath == assets.RootPath {
+		// Root folder has special path
+		parentPKValue = pathPK("")
+		parentSKValue = nameSK("/")
+	} else {
+		grandparentPath, parentName := splitFullPath(parentPath)
+		parentPKValue = pathPK(grandparentPath)
+		parentSKValue = nameSK(parentName)
+	}
 
 	// Build the update expression for ContentCount
 	updateExpr := expression.Add(expression.Name("ContentCount"), expression.Value(delta))
@@ -566,8 +495,8 @@ func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, assetID, par
 				Delete: &types.Delete{
 					TableName: aws.String(d.tableName),
 					Key: map[string]types.AttributeValue{
-						"PK": &types.AttributeValueMemberS{Value: assetPK(assetID)},
-						"SK": &types.AttributeValueMemberS{Value: assetSK(assetID)},
+						"PK": &types.AttributeValueMemberS{Value: pathPK(parentPath)},
+						"SK": &types.AttributeValueMemberS{Value: nameSK(assetName)},
 					},
 					ConditionExpression:       deleteExpr.Condition(),
 					ExpressionAttributeNames:  deleteExpr.Names(),
@@ -578,8 +507,8 @@ func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, assetID, par
 				Update: &types.Update{
 					TableName: aws.String(d.tableName),
 					Key: map[string]types.AttributeValue{
-						"PK": &types.AttributeValueMemberS{Value: assetPK(parentID)},
-						"SK": &types.AttributeValueMemberS{Value: assetSK(parentID)},
+						"PK": &types.AttributeValueMemberS{Value: parentPKValue},
+						"SK": &types.AttributeValueMemberS{Value: parentSKValue},
 					},
 					UpdateExpression:          parentExpr.Update(),
 					ConditionExpression:       parentExpr.Condition(),
@@ -595,10 +524,10 @@ func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, assetID, par
 			for i, reason := range txErr.CancellationReasons {
 				if reason.Code != nil && *reason.Code == "ConditionalCheckFailed" {
 					if i == 0 {
-						return assets.NewNotFoundError(fmt.Sprintf("asset with ID %q not found", assetID), err)
+						return assets.NewNotFoundError(fmt.Sprintf("asset at path %q not found", fullPath), err)
 					}
-					// Parent doesn't exist, but we still want to delete the asset
-					// Fall through to simple delete
+					// Parent doesn't exist - this shouldn't happen but handle gracefully
+					return assets.NewParentFolderNotFoundError("parent folder not found")
 				}
 			}
 		}
@@ -611,61 +540,32 @@ func (d *DB) deleteAssetWithContentCountUpdate(ctx context.Context, assetID, par
 	return nil
 }
 
-// splitPath splits a full path into parent path and name
-// e.g., "/images/carousel" -> ("/images", "carousel")
-// e.g., "/images" -> ("/", "images")
-func splitPath(fullPath string) (parentPath, name string) {
-	if fullPath == "" || fullPath == "/" {
-		return "/", ""
+// splitFullPath splits a full path to an asset into parent path and name.
+// e.g., "/foo/bar.txt" -> ("/foo", "bar.txt")
+// e.g., "/bar.txt" -> ("/", "bar.txt")
+// e.g., "/" -> ("", "/") for root folder
+func splitFullPath(fullPath string) (parentPath, name string) {
+	// Handle root folder special case
+	if fullPath == "/" {
+		return "", "/"
 	}
 
-	// Remove trailing slash if present
-	if fullPath[len(fullPath)-1] == '/' {
-		fullPath = fullPath[:len(fullPath)-1]
+	dir, file := path.Split(fullPath)
+
+	// path.Split includes trailing slash, remove it (but keep "/" as is)
+	if dir != "/" {
+		dir = strings.TrimSuffix(dir, "/")
 	}
 
-	// Find the last slash
-	lastSlash := -1
-	for i := len(fullPath) - 1; i >= 0; i-- {
-		if fullPath[i] == '/' {
-			lastSlash = i
-			break
-		}
-	}
-
-	if lastSlash == -1 {
-		return "/", fullPath
-	}
-
-	if lastSlash == 0 {
-		return "/", fullPath[1:]
-	}
-
-	return fullPath[:lastSlash], fullPath[lastSlash+1:]
+	return dir, file
 }
 
 // EnsureRootFolderExists creates the root folder if it doesn't exist.
 // The root folder has a well-known ID (assets.RootFolderID), Path="" (no parent), and Name="/".
-func (d *DB) EnsureRootFolderExists(ctx context.Context, createdBy string) (*assets.Folder, error) {
+func (d *DB) EnsureRootFolderExists(ctx context.Context, createdBy string) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	// Try to get the root folder first
-	existing, err := d.GetAsset(ctx, assets.RootFolderID)
-	if err == nil {
-		// Root folder exists
-		if folder, ok := existing.(*assets.Folder); ok {
-			return folder, nil
-		}
-		// This shouldn't happen - root folder ID is used for something else
-		return nil, assets.NewFailedToWriteError("root folder ID is not a folder", nil)
-	}
-
-	if !assets.IsNotFoundError(err) {
-		return nil, err
-	}
-
-	// Root folder doesn't exist, create it
 	now := time.Now().UTC()
 	rootFolder := &assets.Folder{
 		ID:           assets.RootFolderID,
@@ -681,7 +581,7 @@ func (d *DB) EnsureRootFolderExists(ctx context.Context, createdBy string) (*ass
 	dynamoItem := newFolderDynamo(rootFolder)
 	item, err := attributevalue.MarshalMap(dynamoItem)
 	if err != nil {
-		return nil, assets.NewFailedToWriteError("failed to marshal root folder", err)
+		return assets.NewFailedToWriteError("failed to marshal root folder", err)
 	}
 
 	// Use condition to avoid overwriting if it was created concurrently
@@ -698,21 +598,14 @@ func (d *DB) EnsureRootFolderExists(ctx context.Context, createdBy string) (*ass
 	if err != nil {
 		var condCheckFailedErr *types.ConditionalCheckFailedException
 		if errors.As(err, &condCheckFailedErr) {
-			// Created concurrently, fetch and return it
-			existing, err := d.GetAsset(ctx, assets.RootFolderID)
-			if err != nil {
-				return nil, err
-			}
-			if folder, ok := existing.(*assets.Folder); ok {
-				return folder, nil
-			}
-			return nil, assets.NewFailedToWriteError("root folder ID is not a folder", nil)
+			// Already exists
+			return nil
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, assets.NewTimeoutError("EnsureRootFolderExists timed out")
+			return assets.NewTimeoutError("EnsureRootFolderExists timed out")
 		}
-		return nil, assets.NewFailedToWriteError("failed to create root folder", err)
+		return assets.NewFailedToWriteError("failed to create root folder", err)
 	}
 
-	return rootFolder, nil
+	return nil
 }

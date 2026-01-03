@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/api"
+	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/assets-api/dynamo"
 	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
 	"github.com/International-Combat-Archery-Alliance/auth/google"
@@ -31,7 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	_, err = db.EnsureRootFolderExists(ctx, "machine")
+	err = db.EnsureRootFolderExists(ctx, "machine")
 	if err != nil {
 		logger.Error("Error making root folder", "error", err)
 		os.Exit(1)
@@ -43,6 +44,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	assetsManager := assets.NewAssetsManager(storage, db)
+
 	googleAuthValidator, err := google.NewValidator(ctx)
 	if err != nil {
 		logger.Error("failed to create google auth validator", slog.String("error", err.Error()))
@@ -52,7 +55,7 @@ func main() {
 	env := getApiEnvironment()
 	cdnBaseURL := getEnvOrDefault("ASSETS_CDN_BASE_URL", "https://assets.icaa.world")
 
-	assetsAPI := api.NewAPI(db, storage, logger, env, cdnBaseURL, googleAuthValidator)
+	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, googleAuthValidator)
 
 	serverSettings := getServerSettingsFromEnv()
 	err = assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)

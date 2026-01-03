@@ -2,7 +2,7 @@ package assets
 
 import (
 	"context"
-	"path"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +45,7 @@ type File struct {
 	Size        int64
 	ObjectKey   string
 	Status      Status
+	ExpiresAt   *time.Time
 	CreatedAt   time.Time
 	CreatedBy   string
 	Version     int
@@ -62,8 +63,8 @@ func (f *File) AsFile() File {
 	return *f
 }
 
-func (f *File) URL(baseURL string) string {
-	return path.Join(baseURL, f.ObjectKey)
+func (f *File) URL(baseURL string) (string, error) {
+	return url.JoinPath(baseURL, f.ObjectKey)
 }
 
 var _ Asset = &Folder{}
@@ -102,19 +103,18 @@ type GetAssetsResponse struct {
 }
 
 type MetadataRepository interface {
-	GetAsset(ctx context.Context, id uuid.UUID) (Asset, error)
+	GetAsset(ctx context.Context, fullPath string) (Asset, error)
 	GetAssets(ctx context.Context, path string, limit int32, cursor *string) (GetAssetsResponse, error)
 	CreateAsset(ctx context.Context, asset Asset) error
 	UpdateAsset(ctx context.Context, asset Asset) error
-	DeleteAsset(ctx context.Context, id uuid.UUID) error
-	// EnsureRootFolderExists creates the root folder if it doesn't exist.
-	// Returns the root folder.
-	EnsureRootFolderExists(ctx context.Context, createdBy string) (*Folder, error)
+	DeleteAsset(ctx context.Context, fullPath string) error
+	EnsureRootFolderExists(ctx context.Context, createdBy string) error
 }
 
 type PresignedUploadResult struct {
-	UploadURL string
-	ExpiresAt time.Time
+	UploadURL  string
+	FormFields map[string]string
+	ExpiresAt  time.Time
 }
 
 type HeadObjectResult struct {
@@ -125,7 +125,7 @@ type HeadObjectResult struct {
 
 type StorageRepository interface {
 	GenerateObjectKey(assetID uuid.UUID) string
-	GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string) (PresignedUploadResult, error)
+	GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error)
 	HeadObject(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error)
 	DeleteObject(ctx context.Context, assetID uuid.UUID) error
 }

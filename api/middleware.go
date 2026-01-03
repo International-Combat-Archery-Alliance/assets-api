@@ -2,31 +2,46 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
+	"github.com/International-Combat-Archery-Alliance/middleware"
 	"github.com/rs/cors"
 )
 
-func (a *API) corsMiddleware() func(http.Handler) http.Handler {
-	var allowedOrigins []string
-	if a.env == LOCAL {
-		allowedOrigins = []string{"http://localhost:*"}
-	} else {
-		allowedOrigins = []string{"https://icaa.world", "https://*.icaa.world"}
+func (a *API) corsMiddleware() middleware.MiddlewareFunc {
+	var serverCors *cors.Cors
+
+	switch a.env {
+	case LOCAL:
+		serverCors = cors.New(cors.Options{
+			AllowedOrigins: []string{"http://localhost:4173", "http://localhost:5173"},
+			AllowedMethods: []string{
+				http.MethodHead,
+				http.MethodGet,
+				http.MethodPost,
+				http.MethodPut,
+				http.MethodPatch,
+				http.MethodDelete,
+			},
+			AllowedHeaders:   []string{"*"},
+			AllowCredentials: true,
+		})
+	case PROD:
+		serverCors = cors.New(cors.Options{
+			AllowedOrigins: []string{"https://www.icaa.world", "https://icaa.world", "https://www.*-icaa-world.curly-sound-f2cd.workers.dev", "https://*-icaa-world.curly-sound-f2cd.workers.dev"},
+			AllowedMethods: []string{
+				http.MethodHead,
+				http.MethodGet,
+				http.MethodPost,
+				http.MethodPut,
+				http.MethodPatch,
+				http.MethodDelete,
+			},
+			// TODO: revisit this
+			AllowedHeaders:   []string{"*"},
+			MaxAge:           300,
+			AllowCredentials: true,
+		})
 	}
 
-	return cors.New(cors.Options{
-		AllowedOrigins:   allowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300,
-		AllowOriginFunc: func(origin string) bool {
-			if a.env == LOCAL && strings.HasPrefix(origin, "http://localhost") {
-				return true
-			}
-			return false
-		},
-	}).Handler
+	return serverCors.Handler
 }

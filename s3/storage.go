@@ -13,8 +13,6 @@ import (
 
 const (
 	MaxUploadSize = 25 * 1024 * 1024 // 25MB
-
-	PresignedURLExpiration = 1 * time.Hour
 )
 
 var _ assets.StorageRepository = &Storage{}
@@ -39,24 +37,47 @@ func (s *Storage) GenerateObjectKey(assetID uuid.UUID) string {
 	return assetID.String()
 }
 
-func (s *Storage) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string) (assets.PresignedUploadResult, error) {
-	expiresAt := time.Now().Add(PresignedURLExpiration)
+func (s *Storage) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+	expiresAt := time.Now().Add(ttl)
+	objectKey := s.GenerateObjectKey(assetID)
 
-	presignedReq, err := s.presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:        aws.String(s.bucketName),
-		Key:           aws.String(s.GenerateObjectKey(assetID)),
-		ContentType:   aws.String(contentType),
-		ContentLength: aws.Int64(MaxUploadSize), // This is the max allowed
-	}, func(opts *s3.PresignOptions) {
-		opts.Expires = PresignedURLExpiration
+	// Build the POST policy conditions
+	conditions := []interface{}{
+		// Exact bucket match
+		map[string]string{"bucket": s.bucketName},
+		// Exact key match
+		[]interface{}{"eq", "$key", objectKey},
+		// Exact content-type match
+		[]interface{}{"eq", "$Content-Type", contentType},
+		// File size range: 1 byte to maxFileSize
+		[]interface{}{"content-length-range", 1, maxFileSize},
+	}
+
+	presignedReq, err := s.presigner.PresignPostObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucketName),
+		Key:         aws.String(objectKey),
+		ContentType: aws.String(contentType),
+	}, func(opts *s3.PresignPostOptions) {
+		opts.Expires = ttl
+		opts.Conditions = conditions
 	})
 	if err != nil {
 		return assets.PresignedUploadResult{}, fmt.Errorf("failed to generate presigned URL: %w", err)
 	}
 
+	// Build form fields that the client must include
+	formFields := make(map[string]string)
+	for k, v := range presignedReq.Values {
+		formFields[k] = v
+	}
+	// Add required fields
+	formFields["key"] = objectKey
+	formFields["Content-Type"] = contentType
+
 	return assets.PresignedUploadResult{
-		UploadURL: presignedReq.URL,
-		ExpiresAt: expiresAt,
+		UploadURL:  presignedReq.URL,
+		FormFields: formFields,
+		ExpiresAt:  expiresAt,
 	}, nil
 }
 

@@ -63,7 +63,6 @@ Resources:
               - dynamodb:Scan
             Resource:
               - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/assets-api"
-              - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/assets-api/index/*"
           - Effect: Allow
             Action:
               - ssm:GetParameter
@@ -140,24 +139,14 @@ Resources:
           AttributeType: S
         - AttributeName: SK
           AttributeType: S
-        - AttributeName: GSI1PK
-          AttributeType: S
-        - AttributeName: GSI1SK
-          AttributeType: S
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: GSI1
-          KeySchema:
-            - AttributeName: GSI1PK
-              KeyType: HASH
-            - AttributeName: GSI1SK
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: TTL
+        Enabled: True
 
 Outputs:
   AssetsApiEndpoint:

@@ -7,13 +7,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
-	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
 	"github.com/International-Combat-Archery-Alliance/auth"
 	"github.com/International-Combat-Archery-Alliance/middleware"
-	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -25,8 +22,7 @@ const (
 )
 
 type API struct {
-	db            assets.MetadataRepository
-	storage       assets.StorageRepository
+	assetManager  *assets.AssetsManager
 	logger        *slog.Logger
 	env           Environment
 	cdnBaseURL    string
@@ -36,16 +32,14 @@ type API struct {
 var _ StrictServerInterface = (*API)(nil)
 
 func NewAPI(
-	db assets.MetadataRepository,
-	storage *s3storage.Storage,
+	assetsManager *assets.AssetsManager,
 	logger *slog.Logger,
 	env Environment,
 	cdnBaseURL string,
 	authValidator auth.Validator,
 ) *API {
 	return &API{
-		db:            db,
-		storage:       storage,
+		assetManager:  assetsManager,
 		logger:        logger,
 		env:           env,
 		cdnBaseURL:    cdnBaseURL,
@@ -103,7 +97,6 @@ func (a *API) getLoggerOrBaseLogger(ctx context.Context) *slog.Logger {
 	return logger
 }
 
-// getAdminEmailFromCtx gets the admin email from the JWT in context
 func (a *API) getAdminEmailFromCtx(ctx context.Context) (string, error) {
 	jwt, ok := middleware.GetJWTFromCtx(ctx)
 	if !ok {
@@ -119,12 +112,10 @@ func (a *API) getAdminEmailFromCtx(ctx context.Context) (string, error) {
 func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject) (GetAssetsV1ResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)
 
-	limit := int32(20)
-	if request.Params.Limit != nil {
-		limit = int32(*request.Params.Limit)
-	}
+	// guaranteed to be non-nil from openapi doc
+	limit := int32(*request.Params.Limit)
 
-	result, err := a.db.GetAssets(ctx, request.Params.Path, limit, request.Params.Cursor)
+	result, err := a.assetManager.GetAssets(ctx, request.Params.Path, limit, request.Params.Cursor)
 	if err != nil {
 		if assets.IsInvalidCursorError(err) {
 			return GetAssetsV1400JSONResponse{
@@ -141,7 +132,15 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 
 	apiAssets := make([]Asset, len(result.Data))
 	for i, asset := range result.Data {
-		apiAssets[i] = assetToAPI(asset, a.cdnBaseURL)
+		apiAsset, err := assetToAPI(asset, a.cdnBaseURL)
+		if err != nil {
+			return GetAssetsV1500JSONResponse{
+				Code:    InternalError,
+				Message: "Failed to get assets",
+			}, nil
+		}
+
+		apiAssets[i] = apiAsset
 	}
 
 	return GetAssetsV1200JSONResponse{
@@ -155,7 +154,6 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1FoldersRequestObject) (PostAssetsV1FoldersResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)
 
-	// Get admin email from JWT
 	userEmail, err := a.getAdminEmailFromCtx(ctx)
 	if err != nil {
 		return PostAssetsV1Folders401JSONResponse{
@@ -164,20 +162,15 @@ func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1Folde
 		}, nil
 	}
 
-	folderID := uuid.New()
-	now := time.Now().UTC()
+	folder, err := a.assetManager.CreateFolder(
+		ctx,
+		request.Body.Path,
+		request.Body.Name,
+		request.Body.Description,
+		userEmail,
+	)
 
-	folder := &assets.Folder{
-		ID:           folderID,
-		Path:         request.Body.Path,
-		Name:         request.Body.Name,
-		Description:  request.Body.Description,
-		ContentCount: 0,
-		CreatedAt:    now,
-		CreatedBy:    userEmail,
-	}
-
-	if err := a.db.CreateAsset(ctx, folder); err != nil {
+	if err != nil {
 		if assets.IsParentFolderNotFoundError(err) {
 			return PostAssetsV1Folders404JSONResponse{
 				Code:    ParentFolderNotFound,
@@ -215,35 +208,16 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 		}, nil
 	}
 
-	fileID := uuid.New()
+	presignResult, file, err := a.assetManager.CreateFileUpload(
+		ctx,
+		request.Body.Path,
+		request.Body.FileName,
+		request.Body.Description,
+		request.Body.ContentType,
+		userEmail,
+	)
 
-	objectKey := a.storage.GenerateObjectKey(fileID)
-
-	presignResult, err := a.storage.GeneratePresignedUploadURL(ctx, fileID, request.Body.ContentType)
 	if err != nil {
-		logger.Error("failed to generate presigned URL", slog.String("error", err.Error()))
-		return PostAssetsV1UploadUrl500JSONResponse{
-			Code:    InternalError,
-			Message: "Failed to generate upload URL",
-		}, nil
-	}
-
-	// Create pending file record
-	now := time.Now().UTC()
-	file := &assets.File{
-		ID:          fileID,
-		Path:        request.Body.Path,
-		Name:        request.Body.FileName,
-		Description: request.Body.Description,
-		ContentType: request.Body.ContentType,
-		Size:        0, // Will be updated on confirm
-		ObjectKey:   objectKey,
-		Status:      assets.StatusPending,
-		CreatedAt:   now,
-		CreatedBy:   userEmail,
-	}
-
-	if err := a.db.CreateAsset(ctx, file); err != nil {
 		if assets.IsParentFolderNotFoundError(err) {
 			return PostAssetsV1UploadUrl404JSONResponse{
 				Code:    ParentFolderNotFound,
@@ -258,219 +232,150 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 	}
 
 	return PostAssetsV1UploadUrl200JSONResponse{
-		FileId:    fileID,
-		UploadUrl: presignResult.UploadURL,
-		ExpiresAt: presignResult.ExpiresAt,
+		FileId:     file.ID,
+		UploadUrl:  presignResult.UploadURL,
+		FormFields: presignResult.FormFields,
+		ExpiresAt:  presignResult.ExpiresAt,
 	}, nil
 }
 
-// GetAssetsV1Id returns a single asset by ID
-func (a *API) GetAssetsV1Id(ctx context.Context, request GetAssetsV1IdRequestObject) (GetAssetsV1IdResponseObject, error) {
+// GetAssetsV1ByPath returns a single asset by full path
+func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRequestObject) (GetAssetsV1ByPathResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)
 
-	asset, err := a.db.GetAsset(ctx, uuid.UUID(request.Id))
+	asset, err := a.assetManager.GetAsset(ctx, request.Params.Path)
 	if err != nil {
 		if assets.IsNotFoundError(err) {
-			return GetAssetsV1Id404JSONResponse{
+			return GetAssetsV1ByPath404JSONResponse{
 				Code:    NotFound,
-				Message: fmt.Sprintf("Asset %s not found", request.Id),
+				Message: fmt.Sprintf("Asset at path %q not found", request.Params.Path),
 			}, nil
 		}
-		logger.Error("failed to get asset", slog.String("error", err.Error()))
-		return GetAssetsV1Id500JSONResponse{
+		logger.Error("failed to get asset", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
+		return GetAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
 			Message: "Failed to get asset",
 		}, nil
 	}
 
-	return GetAssetsV1Id200JSONResponse{
-		Asset: assetToAPI(asset, a.cdnBaseURL),
-	}, nil
-}
-
-// DeleteAssetsV1Id deletes an asset by ID
-func (a *API) DeleteAssetsV1Id(ctx context.Context, request DeleteAssetsV1IdRequestObject) (DeleteAssetsV1IdResponseObject, error) {
-	logger := a.getLoggerOrBaseLogger(ctx)
-
-	// Validate admin auth
-	_, err := a.getAdminEmailFromCtx(ctx)
+	apiAsset, err := assetToAPI(asset, a.cdnBaseURL)
 	if err != nil {
-		return DeleteAssetsV1Id401JSONResponse{
-			Code:    AuthError,
-			Message: "Unauthorized",
-		}, nil
-	}
-
-	// Get asset first to determine type and get S3 key if it's a file
-	asset, err := a.db.GetAsset(ctx, uuid.UUID(request.Id))
-	if err != nil {
-		if assets.IsNotFoundError(err) {
-			return DeleteAssetsV1Id404JSONResponse{
-				Code:    NotFound,
-				Message: fmt.Sprintf("Asset %s not found", request.Id),
-			}, nil
-		}
-		logger.Error("failed to get asset", slog.String("error", err.Error()))
-		return DeleteAssetsV1Id500JSONResponse{
+		return GetAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
 			Message: "Failed to get asset",
 		}, nil
 	}
 
-	// If it's a file, delete from S3 first
-	if file, ok := asset.(*assets.File); ok {
-		if err := a.storage.DeleteObject(ctx, file.ID); err != nil {
-			logger.Error("failed to delete from S3", slog.String("error", err.Error()))
-			return DeleteAssetsV1Id500JSONResponse{
-				Code:    InternalError,
-				Message: "Failed to delete file from storage",
+	return GetAssetsV1ByPath200JSONResponse{
+		Asset: apiAsset,
+	}, nil
+}
+
+// DeleteAssetsV1ByPath deletes an asset by full path
+func (a *API) DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1ByPathRequestObject) (DeleteAssetsV1ByPathResponseObject, error) {
+	logger := a.getLoggerOrBaseLogger(ctx)
+
+	err := a.assetManager.DeleteAsset(ctx, request.Params.Path)
+	if err != nil {
+		if assets.IsNotFoundError(err) {
+			return DeleteAssetsV1ByPath404JSONResponse{
+				Code:    NotFound,
+				Message: fmt.Sprintf("Asset at path %q not found", request.Params.Path),
 			}, nil
 		}
-	}
-
-	// Delete from DynamoDB
-	if err := a.db.DeleteAsset(ctx, uuid.UUID(request.Id)); err != nil {
 		if assets.IsFolderNotEmptyError(err) {
-			return DeleteAssetsV1Id400JSONResponse{
+			return DeleteAssetsV1ByPath400JSONResponse{
 				Code:    FolderNotEmpty,
 				Message: "Cannot delete folder: folder is not empty",
 			}, nil
 		}
-		logger.Error("failed to delete asset from DB", slog.String("error", err.Error()))
-		return DeleteAssetsV1Id500JSONResponse{
+		logger.Error("failed to delete asset", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
+		return DeleteAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
-			Message: "Failed to delete asset record",
+			Message: "Failed to get asset",
 		}, nil
 	}
 
-	return DeleteAssetsV1Id204Response{}, nil
+	return DeleteAssetsV1ByPath204Response{}, nil
 }
 
-// PostAssetsV1IdConfirm confirms a file upload
-func (a *API) PostAssetsV1IdConfirm(ctx context.Context, request PostAssetsV1IdConfirmRequestObject) (PostAssetsV1IdConfirmResponseObject, error) {
+// PostAssetsV1ByPathConfirm confirms a file upload
+func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV1ByPathConfirmRequestObject) (PostAssetsV1ByPathConfirmResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)
 
-	// Validate admin auth
-	_, err := a.getAdminEmailFromCtx(ctx)
-	if err != nil {
-		return PostAssetsV1IdConfirm401JSONResponse{
-			Code:    AuthError,
-			Message: "Unauthorized",
-		}, nil
-	}
-
-	// Get the pending asset
-	asset, err := a.db.GetAsset(ctx, uuid.UUID(request.Id))
+	file, err := a.assetManager.ConfirmFileUpload(ctx, request.Params.Path)
 	if err != nil {
 		if assets.IsNotFoundError(err) {
-			return PostAssetsV1IdConfirm404JSONResponse{
+			return PostAssetsV1ByPathConfirm404JSONResponse{
 				Code:    NotFound,
-				Message: fmt.Sprintf("File %s not found", request.Id),
+				Message: fmt.Sprintf("File at path %q not found", request.Params.Path),
 			}, nil
 		}
-		logger.Error("failed to get asset", slog.String("error", err.Error()))
-		return PostAssetsV1IdConfirm500JSONResponse{
-			Code:    InternalError,
-			Message: "Failed to get file",
-		}, nil
-	}
-
-	// Ensure it's a file
-	file, ok := asset.(*assets.File)
-	if !ok {
-		return PostAssetsV1IdConfirm400JSONResponse{
-			Code:    NotAFile,
-			Message: "Asset is not a file",
-		}, nil
-	}
-
-	if file.Status == assets.StatusConfirmed {
-		// Already confirmed, just return it
-		return PostAssetsV1IdConfirm200JSONResponse{
-			File: fileToAPI(file, a.cdnBaseURL),
-		}, nil
-	}
-
-	// Verify the file exists in S3
-	headResult, err := a.storage.HeadObject(ctx, file.ID)
-	if err != nil {
-		logger.Error("failed to head S3 object", slog.String("error", err.Error()))
-		return PostAssetsV1IdConfirm500JSONResponse{
-			Code:    InternalError,
-			Message: "Failed to verify upload",
-		}, nil
-	}
-
-	if !headResult.Exists {
-		return PostAssetsV1IdConfirm400JSONResponse{
-			Code:    AssetNotUploaded,
-			Message: "File has not been uploaded yet",
-		}, nil
-	}
-
-	// Check file size
-	if headResult.Size > s3storage.MaxUploadSize {
-		// Delete the oversized file
-		_ = a.storage.DeleteObject(ctx, file.ID)
-		_ = a.db.DeleteAsset(ctx, file.ID)
-		return PostAssetsV1IdConfirm400JSONResponse{
-			Code:    FileTooLarge,
-			Message: fmt.Sprintf("File size %d exceeds maximum allowed size of %d bytes", headResult.Size, s3storage.MaxUploadSize),
-		}, nil
-	}
-
-	// Update file with size, status, and incremented version
-	updatedFile := &assets.File{
-		ID:          file.ID,
-		Path:        file.Path,
-		Name:        file.Name,
-		Description: file.Description,
-		ContentType: file.ContentType,
-		Size:        headResult.Size,
-		ObjectKey:   file.ObjectKey,
-		Status:      assets.StatusConfirmed,
-		CreatedAt:   file.CreatedAt,
-		CreatedBy:   file.CreatedBy,
-		Version:     file.Version + 1, // Increment version for optimistic locking
-	}
-
-	if err := a.db.UpdateAsset(ctx, updatedFile); err != nil {
+		if assets.IsNotAFileError(err) {
+			return PostAssetsV1ByPathConfirm400JSONResponse{
+				Code:    NotAFile,
+				Message: "Asset is not a file",
+			}, nil
+		}
+		if assets.IsAssetNotUploadedError(err) {
+			return PostAssetsV1ByPathConfirm400JSONResponse{
+				Code:    AssetNotUploaded,
+				Message: "File has not been uploaded yet",
+			}, nil
+		}
 		if assets.IsVersionConflictError(err) {
-			return PostAssetsV1IdConfirm409JSONResponse{
+			return PostAssetsV1ByPathConfirm409JSONResponse{
 				Code:    VersionConflict,
 				Message: "File was modified by another request, please retry",
 			}, nil
 		}
-		logger.Error("failed to update file", slog.String("error", err.Error()))
-		return PostAssetsV1IdConfirm500JSONResponse{
+		logger.Error("failed to confirm upload", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
+		return PostAssetsV1ByPathConfirm500JSONResponse{
 			Code:    InternalError,
-			Message: "Failed to confirm file",
+			Message: "Failed to confirm upload",
 		}, nil
 	}
 
-	return PostAssetsV1IdConfirm200JSONResponse{
-		File: fileToAPI(updatedFile, a.cdnBaseURL),
+	apiFile, err := fileToAPI(file, a.cdnBaseURL)
+	if err != nil {
+		return PostAssetsV1ByPathConfirm500JSONResponse{
+			Code:    InternalError,
+			Message: "Failed to confirm upload",
+		}, nil
+	}
+
+	return PostAssetsV1ByPathConfirm200JSONResponse{
+		File: apiFile,
 	}, nil
 }
 
 // assetToAPI converts a domain asset to an API asset union type
-func assetToAPI(asset assets.Asset, cdnBaseURL string) Asset {
+func assetToAPI(asset assets.Asset, cdnBaseURL string) (Asset, error) {
 	var apiAsset Asset
 
 	switch a := asset.(type) {
 	case *assets.File:
-		_ = apiAsset.FromFile(fileToAPI(a, cdnBaseURL))
+		file, err := fileToAPI(a, cdnBaseURL)
+		if err != nil {
+			return Asset{}, err
+		}
+		_ = apiAsset.FromFile(file)
 	case *assets.Folder:
 		_ = apiAsset.FromFolder(folderToAPI(a))
 	}
 
-	return apiAsset
+	return apiAsset, nil
 }
 
 // fileToAPI converts a domain file to an API file
-func fileToAPI(file *assets.File, cdnBaseURL string) File {
+func fileToAPI(file *assets.File, cdnBaseURL string) (File, error) {
 	id := openapi_types.UUID(file.ID)
 	createdAt := file.CreatedAt
+	url, err := file.URL(cdnBaseURL)
+	if err != nil {
+		return File{}, fmt.Errorf("failed to create URL for file: %w", err)
+	}
+
 	return File{
 		Type:        AssetTypeFile,
 		Id:          &id,
@@ -479,11 +384,11 @@ func fileToAPI(file *assets.File, cdnBaseURL string) File {
 		Description: file.Description,
 		ContentType: file.ContentType,
 		Size:        file.Size,
-		Url:         file.URL(cdnBaseURL),
+		Url:         url,
 		Status:      FileStatus(file.Status),
 		CreatedAt:   &createdAt,
 		CreatedBy:   &file.CreatedBy,
-	}
+	}, nil
 }
 
 // folderToAPI converts a domain folder to an API folder

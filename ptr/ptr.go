@@ -17,3 +17,7 @@ func String(s string) *string {
 func Duration(d time.Duration) *time.Duration {
 	return &d
 }
+
+func Time(t time.Time) *time.Time {
+	return &t
+}

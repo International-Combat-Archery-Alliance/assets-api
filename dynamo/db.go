@@ -10,10 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-const (
-	gsi1 = "GSI1"
-)
-
 // DB is the DynamoDB implementation of the asset repository
 type DB struct {
 	dynamoClient *dynamodb.Client

@@ -1,6 +1,9 @@
 package assets
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Error codes for asset operations
 type ErrorCode string
@@ -40,14 +43,20 @@ func (e *AssetError) Unwrap() error {
 	return e.Err
 }
 
-// Error constructors
-
 func NewNotFoundError(message string, err error) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeNotFound,
 		Message: message,
 		Err:     err,
 	}
+}
+
+func IsNotFoundError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeNotFound
+	}
+	return false
 }
 
 func NewAlreadyExistsError(message string, err error) *AssetError {
@@ -58,6 +67,14 @@ func NewAlreadyExistsError(message string, err error) *AssetError {
 	}
 }
 
+func IsAlreadyExistsError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeAlreadyExists
+	}
+	return false
+}
+
 func NewInvalidCursorError(message string, err error) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeInvalidCursor,
@@ -66,11 +83,27 @@ func NewInvalidCursorError(message string, err error) *AssetError {
 	}
 }
 
+func IsInvalidCursorError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeInvalidCursor
+	}
+	return false
+}
+
 func NewTimeoutError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeTimeout,
 		Message: message,
 	}
+}
+
+func IsTimeoutError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeTimeout
+	}
+	return false
 }
 
 func NewFailedToFetchError(message string, err error) *AssetError {
@@ -81,12 +114,28 @@ func NewFailedToFetchError(message string, err error) *AssetError {
 	}
 }
 
+func IsFailedToFetchError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeFailedToFetch
+	}
+	return false
+}
+
 func NewFailedToWriteError(message string, err error) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeFailedToWrite,
 		Message: message,
 		Err:     err,
 	}
+}
+
+func IsFailedToWriteError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeFailedToWrite
+	}
+	return false
 }
 
 func NewFailedToDeleteError(message string, err error) *AssetError {
@@ -97,11 +146,27 @@ func NewFailedToDeleteError(message string, err error) *AssetError {
 	}
 }
 
+func IsFailedToDeleteError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeFailedToDelete
+	}
+	return false
+}
+
 func NewAssetNotUploadedError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeAssetNotUploaded,
 		Message: message,
 	}
+}
+
+func IsAssetNotUploadedError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeAssetNotUploaded
+	}
+	return false
 }
 
 func NewFileTooLargeError(message string) *AssetError {
@@ -111,6 +176,14 @@ func NewFileTooLargeError(message string) *AssetError {
 	}
 }
 
+func IsFileTooLargeError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeFileTooLarge
+	}
+	return false
+}
+
 func NewNotAllowedToDeleteRootError() *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeNotAllowedToDeleteRoot,
@@ -118,31 +191,14 @@ func NewNotAllowedToDeleteRootError() *AssetError {
 	}
 }
 
-// IsNotFoundError checks if the error is a not found error
-func IsNotFoundError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
-		return assetErr.Code == ErrorCodeNotFound
+func IsNotAllowedToDeleteRootError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeNotAllowedToDeleteRoot
 	}
 	return false
 }
 
-// IsAlreadyExistsError checks if the error is an already exists error
-func IsAlreadyExistsError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
-		return assetErr.Code == ErrorCodeAlreadyExists
-	}
-	return false
-}
-
-// IsInvalidCursorError checks if the error is an invalid cursor error
-func IsInvalidCursorError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
-		return assetErr.Code == ErrorCodeInvalidCursor
-	}
-	return false
-}
-
-// NewFolderNotEmptyError creates a new folder not empty error
 func NewFolderNotEmptyError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeFolderNotEmpty,
@@ -150,15 +206,14 @@ func NewFolderNotEmptyError(message string) *AssetError {
 	}
 }
 
-// IsFolderNotEmptyError checks if the error is a folder not empty error
 func IsFolderNotEmptyError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
 		return assetErr.Code == ErrorCodeFolderNotEmpty
 	}
 	return false
 }
 
-// NewParentFolderNotFoundError creates a new parent folder not found error
 func NewParentFolderNotFoundError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeParentFolderNotFound,
@@ -166,15 +221,14 @@ func NewParentFolderNotFoundError(message string) *AssetError {
 	}
 }
 
-// IsParentFolderNotFoundError checks if the error is a parent folder not found error
 func IsParentFolderNotFoundError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
 		return assetErr.Code == ErrorCodeParentFolderNotFound
 	}
 	return false
 }
 
-// NewNotAFileError creates a new not a file error
 func NewNotAFileError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeNotAFile,
@@ -182,15 +236,14 @@ func NewNotAFileError(message string) *AssetError {
 	}
 }
 
-// IsNotAFileError checks if the error is a not a file error
 func IsNotAFileError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
 		return assetErr.Code == ErrorCodeNotAFile
 	}
 	return false
 }
 
-// NewVersionConflictError creates a new version conflict error
 func NewVersionConflictError(message string) *AssetError {
 	return &AssetError{
 		Code:    ErrorCodeVersionConflict,
@@ -198,9 +251,9 @@ func NewVersionConflictError(message string) *AssetError {
 	}
 }
 
-// IsVersionConflictError checks if the error is a version conflict error
 func IsVersionConflictError(err error) bool {
-	if assetErr, ok := err.(*AssetError); ok {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
 		return assetErr.Code == ErrorCodeVersionConflict
 	}
 	return false
