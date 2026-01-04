@@ -20,6 +20,8 @@ require (
 	github.com/oapi-codegen/nethttp-middleware v1.1.2
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/rs/cors v1.11.1
+	github.com/testcontainers/testcontainers-go v0.28.0
+	github.com/testcontainers/testcontainers-go/modules/localstack v0.28.0
 )
 
 require (
