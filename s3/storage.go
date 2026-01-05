@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
@@ -33,13 +34,14 @@ func NewStorage(client *s3.Client, bucketName, cdnBaseURL string) *Storage {
 	}
 }
 
-func (s *Storage) GenerateObjectKey(assetID uuid.UUID) string {
-	return assetID.String()
+func (s *Storage) GenerateObjectKey(assetID uuid.UUID, filename string) string {
+	ext := filepath.Ext(filename)
+	return assetID.String() + ext
 }
 
-func (s *Storage) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+func (s *Storage) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
 	expiresAt := time.Now().Add(ttl)
-	objectKey := s.GenerateObjectKey(assetID)
+	objectKey := s.GenerateObjectKey(assetID, filename)
 
 	// Build the POST policy conditions
 	conditions := []interface{}{
@@ -81,10 +83,10 @@ func (s *Storage) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.U
 	}, nil
 }
 
-func (s *Storage) HeadObject(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+func (s *Storage) HeadObject(ctx context.Context, objectKey string) (assets.HeadObjectResult, error) {
 	result, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucketName),
-		Key:    aws.String(s.GenerateObjectKey(assetID)),
+		Key:    aws.String(objectKey),
 	})
 	if err != nil {
 		// Check if the error is a "not found" error
@@ -109,9 +111,7 @@ func (s *Storage) HeadObject(ctx context.Context, assetID uuid.UUID) (assets.Hea
 	}, nil
 }
 
-func (s *Storage) DeleteObject(ctx context.Context, assetID uuid.UUID) error {
-	objectKey := s.GenerateObjectKey(assetID)
-
+func (s *Storage) DeleteObject(ctx context.Context, objectKey string) error {
 	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucketName),
 		Key:    aws.String(objectKey),

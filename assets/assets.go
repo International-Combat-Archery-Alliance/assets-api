@@ -124,8 +124,8 @@ type HeadObjectResult struct {
 }
 
 type StorageRepository interface {
-	GenerateObjectKey(assetID uuid.UUID) string
-	GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error)
-	HeadObject(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error)
-	DeleteObject(ctx context.Context, assetID uuid.UUID) error
+	GenerateObjectKey(assetID uuid.UUID, filename string) string
+	GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error)
+	HeadObject(ctx context.Context, objectKey string) (HeadObjectResult, error)
+	DeleteObject(ctx context.Context, objectKey string) error
 }
