@@ -72,7 +72,7 @@ func (am *AssetsManager) CreateFileUpload(
 	id := uuid.New()
 	now := time.Now().UTC()
 
-	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, id, contentType, uploadTTL, maxUploadSize)
+	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, id, name, contentType, uploadTTL, maxUploadSize)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -84,7 +84,7 @@ func (am *AssetsManager) CreateFileUpload(
 		Description: description,
 		ContentType: contentType,
 		Size:        0, // updated on confirm
-		ObjectKey:   am.storageRepo.GenerateObjectKey(id),
+		ObjectKey:   am.storageRepo.GenerateObjectKey(id, name),
 		Status:      StatusPending,
 		CreatedAt:   now,
 		CreatedBy:   createdBy,
@@ -117,7 +117,7 @@ func (am *AssetsManager) ConfirmFileUpload(
 		return file, nil
 	}
 
-	headResult, err := am.storageRepo.HeadObject(ctx, file.ID)
+	headResult, err := am.storageRepo.HeadObject(ctx, file.ObjectKey)
 	if err != nil {
 		return nil, NewFailedToFetchError(fmt.Sprintf("%q failed to fetch from storage", fullPath), err)
 	}
@@ -148,7 +148,7 @@ func (am *AssetsManager) DeleteAsset(ctx context.Context, fullPath string) error
 
 	// If it's a file, delete from storage first
 	if file, ok := asset.(*File); ok {
-		if err := am.storageRepo.DeleteObject(ctx, file.ID); err != nil {
+		if err := am.storageRepo.DeleteObject(ctx, file.ObjectKey); err != nil {
 			return err
 		}
 	}
