@@ -12,12 +12,12 @@ import (
 // Mock implementations for testing
 
 type mockMetadataRepo struct {
-	getAssetFunc              func(ctx context.Context, fullPath string) (Asset, error)
-	getAssetsFunc             func(ctx context.Context, path string, limit int32, cursor *string) (GetAssetsResponse, error)
-	createAssetFunc           func(ctx context.Context, asset Asset) error
-	updateAssetFunc           func(ctx context.Context, asset Asset) error
-	deleteAssetFunc           func(ctx context.Context, fullPath string) error
-	ensureRootFolderExitsFunc func(ctx context.Context, createdBy string) error
+	getAssetFunc               func(ctx context.Context, fullPath string) (Asset, error)
+	getAssetsFunc              func(ctx context.Context, path string, limit int32, cursor *string) (GetAssetsResponse, error)
+	createAssetFunc            func(ctx context.Context, asset Asset) error
+	updateAssetFunc            func(ctx context.Context, asset Asset) error
+	deleteAssetFunc            func(ctx context.Context, fullPath string) error
+	ensureRootFolderExistsFunc func(ctx context.Context, createdBy string) error
 }
 
 func (m *mockMetadataRepo) GetAsset(ctx context.Context, fullPath string) (Asset, error) {
@@ -56,8 +56,8 @@ func (m *mockMetadataRepo) DeleteAsset(ctx context.Context, fullPath string) err
 }
 
 func (m *mockMetadataRepo) EnsureRootFolderExists(ctx context.Context, createdBy string) error {
-	if m.ensureRootFolderExitsFunc != nil {
-		return m.ensureRootFolderExitsFunc(ctx, createdBy)
+	if m.ensureRootFolderExistsFunc != nil {
+		return m.ensureRootFolderExistsFunc(ctx, createdBy)
 	}
 	return nil
 }

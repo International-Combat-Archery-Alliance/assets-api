@@ -993,10 +993,6 @@ func TestAPI_PostAssetsV1ByPathConfirm_Success(t *testing.T) {
 			}, nil
 		},
 		updateAssetFunc: func(ctx context.Context, asset assets.Asset) error {
-			file := asset.(*assets.File)
-			file.Version = 1
-			file.Size = 1024
-			file.Status = assets.StatusConfirmed
 			return nil
 		},
 	}
