@@ -145,10 +145,12 @@ func TestStorage_GenerateObjectKey(t *testing.T) {
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
 
 	assetID := uuid.New()
-	objectKey := storage.GenerateObjectKey(assetID)
+	filename := "test.txt"
+	objectKey := storage.GenerateObjectKey(assetID, filename)
 
-	if objectKey != assetID.String() {
-		t.Errorf("GenerateObjectKey() = %q, want %q", objectKey, assetID.String())
+	expected := assetID.String() + ".txt"
+	if objectKey != expected {
+		t.Errorf("GenerateObjectKey() = %q, want %q", objectKey, expected)
 	}
 }
 
@@ -160,11 +162,12 @@ func TestStorage_GeneratePresignedUploadURL(t *testing.T) {
 	ctx := context.Background()
 
 	assetID := uuid.New()
+	filename := "test.txt"
 	contentType := "text/plain"
 	ttl := 1 * time.Hour
 	maxFileSize := 10 * 1024 * 1024
 
-	result, err := storage.GeneratePresignedUploadURL(ctx, assetID, contentType, ttl, maxFileSize)
+	result, err := storage.GeneratePresignedUploadURL(ctx, assetID, filename, contentType, ttl, maxFileSize)
 	if err != nil {
 		t.Fatalf("GeneratePresignedUploadURL() error = %v", err)
 	}
@@ -177,7 +180,8 @@ func TestStorage_GeneratePresignedUploadURL(t *testing.T) {
 		t.Error("FormFields is empty")
 	}
 
-	if result.FormFields["key"] != assetID.String() {
+	expectedKey := assetID.String() + ".txt"
+	if result.FormFields["key"] != expectedKey {
 		t.Errorf("FormFields[key] = %q, want %q", result.FormFields["key"], assetID.String())
 	}
 
@@ -203,7 +207,8 @@ func TestStorage_HeadObject_Exists(t *testing.T) {
 	ctx := context.Background()
 
 	assetID := uuid.New()
-	objectKey := storage.GenerateObjectKey(assetID)
+	filename := "test.txt"
+	objectKey := storage.GenerateObjectKey(assetID, filename)
 	contentType := "text/plain"
 	content := "Hello, World!"
 
@@ -217,7 +222,7 @@ func TestStorage_HeadObject_Exists(t *testing.T) {
 		t.Fatalf("Failed to put object: %v", err)
 	}
 
-	result, err := storage.HeadObject(ctx, assetID)
+	result, err := storage.HeadObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("HeadObject() error = %v", err)
 	}
@@ -243,8 +248,10 @@ func TestStorage_HeadObject_NotExists(t *testing.T) {
 	ctx := context.Background()
 
 	assetID := uuid.New()
+	filename := "test.txt"
+	objectKey := storage.GenerateObjectKey(assetID, filename)
 
-	result, err := storage.HeadObject(ctx, assetID)
+	result, err := storage.HeadObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("HeadObject() error = %v", err)
 	}
@@ -262,7 +269,8 @@ func TestStorage_DeleteObject(t *testing.T) {
 	ctx := context.Background()
 
 	assetID := uuid.New()
-	objectKey := storage.GenerateObjectKey(assetID)
+	filename := "test.txt"
+	objectKey := storage.GenerateObjectKey(assetID, filename)
 
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
@@ -273,7 +281,7 @@ func TestStorage_DeleteObject(t *testing.T) {
 		t.Fatalf("Failed to put object: %v", err)
 	}
 
-	result, err := storage.HeadObject(ctx, assetID)
+	result, err := storage.HeadObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("HeadObject() error = %v", err)
 	}
@@ -281,12 +289,12 @@ func TestStorage_DeleteObject(t *testing.T) {
 		t.Fatal("Object should exist before deletion")
 	}
 
-	err = storage.DeleteObject(ctx, assetID)
+	err = storage.DeleteObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("DeleteObject() error = %v", err)
 	}
 
-	result, err = storage.HeadObject(ctx, assetID)
+	result, err = storage.HeadObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("HeadObject() error = %v", err)
 	}
@@ -303,8 +311,10 @@ func TestStorage_DeleteObject_NotExists(t *testing.T) {
 	ctx := context.Background()
 
 	assetID := uuid.New()
+	filename := "test.txt"
+	objectKey := storage.GenerateObjectKey(assetID, filename)
 
-	err := storage.DeleteObject(ctx, assetID)
+	err := storage.DeleteObject(ctx, objectKey)
 	if err != nil {
 		t.Fatalf("DeleteObject() should not error for non-existent object, got: %v", err)
 	}

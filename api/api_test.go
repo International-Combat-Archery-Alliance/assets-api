@@ -16,22 +16,22 @@ import (
 
 // mockStorageRepository implements assets.StorageRepository for testing
 type mockStorageRepository struct {
-	generateObjectKeyFunc          func(assetID uuid.UUID) string
-	generatePresignedUploadURLFunc func(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error)
-	headObjectFunc                 func(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error)
-	deleteObjectFunc               func(ctx context.Context, assetID uuid.UUID) error
+	generateObjectKeyFunc          func(assetID uuid.UUID, filename string) string
+	generatePresignedUploadURLFunc func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error)
+	headObjectFunc                 func(ctx context.Context, objectKey string) (assets.HeadObjectResult, error)
+	deleteObjectFunc               func(ctx context.Context, objectKey string) error
 }
 
-func (m *mockStorageRepository) GenerateObjectKey(assetID uuid.UUID) string {
+func (m *mockStorageRepository) GenerateObjectKey(assetID uuid.UUID, filename string) string {
 	if m.generateObjectKeyFunc != nil {
-		return m.generateObjectKeyFunc(assetID)
+		return m.generateObjectKeyFunc(assetID, filename)
 	}
 	return assetID.String()
 }
 
-func (m *mockStorageRepository) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+func (m *mockStorageRepository) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
 	if m.generatePresignedUploadURLFunc != nil {
-		return m.generatePresignedUploadURLFunc(ctx, assetID, contentType, ttl, maxFileSize)
+		return m.generatePresignedUploadURLFunc(ctx, assetID, filename, contentType, ttl, maxFileSize)
 	}
 	return assets.PresignedUploadResult{
 		UploadURL:  "https://example.com/upload",
@@ -40,9 +40,9 @@ func (m *mockStorageRepository) GeneratePresignedUploadURL(ctx context.Context, 
 	}, nil
 }
 
-func (m *mockStorageRepository) HeadObject(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+func (m *mockStorageRepository) HeadObject(ctx context.Context, objectKey string) (assets.HeadObjectResult, error) {
 	if m.headObjectFunc != nil {
-		return m.headObjectFunc(ctx, assetID)
+		return m.headObjectFunc(ctx, objectKey)
 	}
 	return assets.HeadObjectResult{
 		Size:        1024,
@@ -51,9 +51,9 @@ func (m *mockStorageRepository) HeadObject(ctx context.Context, assetID uuid.UUI
 	}, nil
 }
 
-func (m *mockStorageRepository) DeleteObject(ctx context.Context, assetID uuid.UUID) error {
+func (m *mockStorageRepository) DeleteObject(ctx context.Context, objectKey string) error {
 	if m.deleteObjectFunc != nil {
-		return m.deleteObjectFunc(ctx, assetID)
+		return m.deleteObjectFunc(ctx, objectKey)
 	}
 	return nil
 }
@@ -504,8 +504,9 @@ func TestAssetToAPI_Folder(t *testing.T) {
 }
 
 func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
+	fileID := uuid.New()
 	storageRepo := &mockStorageRepository{
-		deleteObjectFunc: func(ctx context.Context, assetID uuid.UUID) error {
+		deleteObjectFunc: func(ctx context.Context, objectKey string) error {
 			return nil
 		},
 	}
@@ -513,9 +514,10 @@ func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
 		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
 			// Return a mock file for deletion
 			return &assets.File{
-				ID:   uuid.New(),
-				Path: fullPath,
-				Name: "test.txt",
+				ID:        fileID,
+				Path:      fullPath,
+				Name:      "test.txt",
+				ObjectKey: fileID.String(),
 			}, nil
 		},
 		deleteAssetFunc: func(ctx context.Context, fullPath string) error {
@@ -821,7 +823,7 @@ func TestAPI_PostAssetsV1UploadUrl_Success(t *testing.T) {
 	expiresAt := time.Now().Add(time.Hour)
 
 	storageRepo := &mockStorageRepository{
-		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
 			return assets.PresignedUploadResult{
 				UploadURL:  uploadURL,
 				FormFields: formFields,
@@ -966,7 +968,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_Success(t *testing.T) {
 	desc := "Test file"
 
 	storageRepo := &mockStorageRepository{
-		headObjectFunc: func(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+		headObjectFunc: func(ctx context.Context, objectKey string) (assets.HeadObjectResult, error) {
 			return assets.HeadObjectResult{
 				Size:        1024,
 				ContentType: "text/plain",
@@ -1100,7 +1102,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_NotAFile(t *testing.T) {
 func TestAPI_PostAssetsV1ByPathConfirm_AssetNotUploaded(t *testing.T) {
 	fileID := uuid.New()
 	storageRepo := &mockStorageRepository{
-		headObjectFunc: func(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+		headObjectFunc: func(ctx context.Context, objectKey string) (assets.HeadObjectResult, error) {
 			return assets.HeadObjectResult{
 				Exists: false,
 			}, nil
@@ -1150,7 +1152,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_AssetNotUploaded(t *testing.T) {
 func TestAPI_PostAssetsV1ByPathConfirm_VersionConflict(t *testing.T) {
 	fileID := uuid.New()
 	storageRepo := &mockStorageRepository{
-		headObjectFunc: func(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+		headObjectFunc: func(ctx context.Context, objectKey string) (assets.HeadObjectResult, error) {
 			return assets.HeadObjectResult{
 				Size:        1024,
 				ContentType: "text/plain",

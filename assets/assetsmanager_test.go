@@ -63,36 +63,36 @@ func (m *mockMetadataRepo) EnsureRootFolderExists(ctx context.Context, createdBy
 }
 
 type mockStorageRepo struct {
-	generateObjectKeyFunc           func(assetID uuid.UUID) string
-	generatePresignedUploadURLFunc  func(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error)
-	headObjectFunc                  func(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error)
-	deleteObjectFunc                func(ctx context.Context, assetID uuid.UUID) error
+	generateObjectKeyFunc          func(assetID uuid.UUID, filename string) string
+	generatePresignedUploadURLFunc func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error)
+	headObjectFunc                 func(ctx context.Context, objectKey string) (HeadObjectResult, error)
+	deleteObjectFunc               func(ctx context.Context, objectKey string) error
 }
 
-func (m *mockStorageRepo) GenerateObjectKey(assetID uuid.UUID) string {
+func (m *mockStorageRepo) GenerateObjectKey(assetID uuid.UUID, filename string) string {
 	if m.generateObjectKeyFunc != nil {
-		return m.generateObjectKeyFunc(assetID)
+		return m.generateObjectKeyFunc(assetID, filename)
 	}
 	return assetID.String()
 }
 
-func (m *mockStorageRepo) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
+func (m *mockStorageRepo) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
 	if m.generatePresignedUploadURLFunc != nil {
-		return m.generatePresignedUploadURLFunc(ctx, assetID, contentType, ttl, maxFileSize)
+		return m.generatePresignedUploadURLFunc(ctx, assetID, filename, contentType, ttl, maxFileSize)
 	}
 	return PresignedUploadResult{}, nil
 }
 
-func (m *mockStorageRepo) HeadObject(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error) {
+func (m *mockStorageRepo) HeadObject(ctx context.Context, objectKey string) (HeadObjectResult, error) {
 	if m.headObjectFunc != nil {
-		return m.headObjectFunc(ctx, assetID)
+		return m.headObjectFunc(ctx, objectKey)
 	}
 	return HeadObjectResult{}, nil
 }
 
-func (m *mockStorageRepo) DeleteObject(ctx context.Context, assetID uuid.UUID) error {
+func (m *mockStorageRepo) DeleteObject(ctx context.Context, objectKey string) error {
 	if m.deleteObjectFunc != nil {
-		return m.deleteObjectFunc(ctx, assetID)
+		return m.deleteObjectFunc(ctx, objectKey)
 	}
 	return nil
 }
@@ -231,10 +231,10 @@ func TestAssetsManager_CreateFileUpload(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		generateObjectKeyFunc: func(assetID uuid.UUID) string {
+		generateObjectKeyFunc: func(assetID uuid.UUID, filename string) string {
 			return expectedObjectKey
 		},
-		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
 			return PresignedUploadResult{
 				UploadURL:  expectedUploadURL,
 				FormFields: map[string]string{"key": "value"},
@@ -304,9 +304,10 @@ func TestAssetsManager_ConfirmFileUpload_Success(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		headObjectFunc: func(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error) {
-			if assetID != fileID {
-				t.Errorf("HeadObject called with ID %v, want %v", assetID, fileID)
+		headObjectFunc: func(ctx context.Context, objectKey string) (HeadObjectResult, error) {
+			expectedKey := fileID.String()
+			if objectKey != expectedKey {
+				t.Errorf("HeadObject called with key %v, want %v", objectKey, expectedKey)
 			}
 			return HeadObjectResult{
 				Size:        1024,
@@ -409,7 +410,7 @@ func TestAssetsManager_ConfirmFileUpload_ObjectNotExists(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		headObjectFunc: func(ctx context.Context, assetID uuid.UUID) (HeadObjectResult, error) {
+		headObjectFunc: func(ctx context.Context, objectKey string) (HeadObjectResult, error) {
 			return HeadObjectResult{
 				Exists: false,
 			}, nil
@@ -431,12 +432,13 @@ func TestAssetsManager_ConfirmFileUpload_ObjectNotExists(t *testing.T) {
 func TestAssetsManager_DeleteAsset_File(t *testing.T) {
 	fileID := uuid.New()
 	file := &File{
-		ID:   fileID,
-		Name: "test.txt",
-		Path: "/",
+		ID:        fileID,
+		Name:      "test.txt",
+		Path:      "/",
+		ObjectKey: fileID.String(),
 	}
 
-	var deletedObjectID uuid.UUID
+	var deletedObjectKey string
 	var deletedPath string
 
 	metadataRepo := &mockMetadataRepo{
@@ -450,8 +452,8 @@ func TestAssetsManager_DeleteAsset_File(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		deleteObjectFunc: func(ctx context.Context, assetID uuid.UUID) error {
-			deletedObjectID = assetID
+		deleteObjectFunc: func(ctx context.Context, objectKey string) error {
+			deletedObjectKey = objectKey
 			return nil
 		},
 	}
@@ -464,8 +466,8 @@ func TestAssetsManager_DeleteAsset_File(t *testing.T) {
 		t.Fatalf("DeleteAsset() error = %v", err)
 	}
 
-	if deletedObjectID != fileID {
-		t.Errorf("DeleteObject called with ID %v, want %v", deletedObjectID, fileID)
+	if deletedObjectKey != fileID.String() {
+		t.Errorf("DeleteObject called with key %v, want %v", deletedObjectKey, fileID.String())
 	}
 	if deletedPath != "/test.txt" {
 		t.Errorf("DeleteAsset called with path %q, want %q", deletedPath, "/test.txt")
@@ -493,7 +495,7 @@ func TestAssetsManager_DeleteAsset_Folder(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		deleteObjectFunc: func(ctx context.Context, assetID uuid.UUID) error {
+		deleteObjectFunc: func(ctx context.Context, objectKey string) error {
 			deleteObjectCalled = true
 			return nil
 		},
@@ -516,10 +518,12 @@ func TestAssetsManager_DeleteAsset_Folder(t *testing.T) {
 }
 
 func TestAssetsManager_DeleteAsset_StorageError(t *testing.T) {
+	fileID := uuid.New()
 	file := &File{
-		ID:   uuid.New(),
-		Name: "test.txt",
-		Path: "/",
+		ID:        fileID,
+		Name:      "test.txt",
+		Path:      "/",
+		ObjectKey: fileID.String(),
 	}
 
 	metadataRepo := &mockMetadataRepo{
@@ -529,7 +533,7 @@ func TestAssetsManager_DeleteAsset_StorageError(t *testing.T) {
 	}
 
 	storageRepo := &mockStorageRepo{
-		deleteObjectFunc: func(ctx context.Context, assetID uuid.UUID) error {
+		deleteObjectFunc: func(ctx context.Context, objectKey string) error {
 			return fmt.Errorf("storage error")
 		},
 	}
