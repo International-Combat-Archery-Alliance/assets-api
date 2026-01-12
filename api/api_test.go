@@ -9,66 +9,147 @@ import (
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
+	"github.com/International-Combat-Archery-Alliance/auth"
 	"github.com/google/uuid"
 )
 
-type mockAssetsManager struct {
-	getAssetFunc           func(ctx context.Context, fullPath string) (assets.Asset, error)
-	getAssetsFunc          func(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error)
-	createFolderFunc       func(ctx context.Context, path string, name string, description *string, createdBy string) (*assets.Folder, error)
-	createFileUploadFunc   func(ctx context.Context, path string, name string, description *string, contentType string, createdBy string) (*assets.PresignedUploadResult, *assets.File, error)
-	confirmFileUploadFunc  func(ctx context.Context, fullPath string) (*assets.File, error)
-	deleteAssetFunc        func(ctx context.Context, fullPath string) error
+// mockStorageRepository implements assets.StorageRepository for testing
+type mockStorageRepository struct {
+	generateObjectKeyFunc          func(assetID uuid.UUID) string
+	generatePresignedUploadURLFunc func(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error)
+	headObjectFunc                 func(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error)
+	deleteObjectFunc               func(ctx context.Context, assetID uuid.UUID) error
 }
 
-func (m *mockAssetsManager) GetAsset(ctx context.Context, fullPath string) (assets.Asset, error) {
+func (m *mockStorageRepository) GenerateObjectKey(assetID uuid.UUID) string {
+	if m.generateObjectKeyFunc != nil {
+		return m.generateObjectKeyFunc(assetID)
+	}
+	return assetID.String()
+}
+
+func (m *mockStorageRepository) GeneratePresignedUploadURL(ctx context.Context, assetID uuid.UUID, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+	if m.generatePresignedUploadURLFunc != nil {
+		return m.generatePresignedUploadURLFunc(ctx, assetID, contentType, ttl, maxFileSize)
+	}
+	return assets.PresignedUploadResult{
+		UploadURL:  "https://example.com/upload",
+		FormFields: map[string]string{"key": "value"},
+		ExpiresAt:  time.Now().Add(ttl),
+	}, nil
+}
+
+func (m *mockStorageRepository) HeadObject(ctx context.Context, assetID uuid.UUID) (assets.HeadObjectResult, error) {
+	if m.headObjectFunc != nil {
+		return m.headObjectFunc(ctx, assetID)
+	}
+	return assets.HeadObjectResult{
+		Size:        1024,
+		ContentType: "text/plain",
+		Exists:      true,
+	}, nil
+}
+
+func (m *mockStorageRepository) DeleteObject(ctx context.Context, assetID uuid.UUID) error {
+	if m.deleteObjectFunc != nil {
+		return m.deleteObjectFunc(ctx, assetID)
+	}
+	return nil
+}
+
+// mockMetadataRepository implements assets.MetadataRepository for testing
+type mockMetadataRepository struct {
+	getAssetFunc               func(ctx context.Context, fullPath string) (assets.Asset, error)
+	getAssetsFunc              func(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error)
+	createAssetFunc            func(ctx context.Context, asset assets.Asset) error
+	updateAssetFunc            func(ctx context.Context, asset assets.Asset) error
+	deleteAssetFunc            func(ctx context.Context, fullPath string) error
+	ensureRootFolderExistsFunc func(ctx context.Context, createdBy string) error
+}
+
+func (m *mockMetadataRepository) GetAsset(ctx context.Context, fullPath string) (assets.Asset, error) {
 	if m.getAssetFunc != nil {
 		return m.getAssetFunc(ctx, fullPath)
 	}
 	return nil, nil
 }
 
-func (m *mockAssetsManager) GetAssets(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error) {
+func (m *mockMetadataRepository) GetAssets(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error) {
 	if m.getAssetsFunc != nil {
 		return m.getAssetsFunc(ctx, path, limit, cursor)
 	}
 	return assets.GetAssetsResponse{}, nil
 }
 
-func (m *mockAssetsManager) CreateFolder(ctx context.Context, path string, name string, description *string, createdBy string) (*assets.Folder, error) {
-	if m.createFolderFunc != nil {
-		return m.createFolderFunc(ctx, path, name, description, createdBy)
+func (m *mockMetadataRepository) CreateAsset(ctx context.Context, asset assets.Asset) error {
+	if m.createAssetFunc != nil {
+		return m.createAssetFunc(ctx, asset)
 	}
-	return nil, nil
+	return nil
 }
 
-func (m *mockAssetsManager) CreateFileUpload(ctx context.Context, path string, name string, description *string, contentType string, createdBy string) (*assets.PresignedUploadResult, *assets.File, error) {
-	if m.createFileUploadFunc != nil {
-		return m.createFileUploadFunc(ctx, path, name, description, contentType, createdBy)
+func (m *mockMetadataRepository) UpdateAsset(ctx context.Context, asset assets.Asset) error {
+	if m.updateAssetFunc != nil {
+		return m.updateAssetFunc(ctx, asset)
 	}
-	return nil, nil, nil
+	return nil
 }
 
-func (m *mockAssetsManager) ConfirmFileUpload(ctx context.Context, fullPath string) (*assets.File, error) {
-	if m.confirmFileUploadFunc != nil {
-		return m.confirmFileUploadFunc(ctx, fullPath)
-	}
-	return nil, nil
-}
-
-func (m *mockAssetsManager) DeleteAsset(ctx context.Context, fullPath string) error {
+func (m *mockMetadataRepository) DeleteAsset(ctx context.Context, fullPath string) error {
 	if m.deleteAssetFunc != nil {
 		return m.deleteAssetFunc(ctx, fullPath)
 	}
 	return nil
 }
 
+func (m *mockMetadataRepository) EnsureRootFolderExists(ctx context.Context, createdBy string) error {
+	if m.ensureRootFolderExistsFunc != nil {
+		return m.ensureRootFolderExistsFunc(ctx, createdBy)
+	}
+	return nil
+}
+
+// mockAuthToken implements auth.AuthToken for testing
+type mockAuthToken struct {
+	email   string
+	isAdmin bool
+}
+
+func (m *mockAuthToken) ExpiresAt() time.Time {
+	return time.Now().Add(time.Hour)
+}
+
+func (m *mockAuthToken) ProfilePicURL() string {
+	return "https://example.com/profile.jpg"
+}
+
+func (m *mockAuthToken) IsAdmin() bool {
+	return m.isAdmin
+}
+
+func (m *mockAuthToken) UserEmail() string {
+	return m.email
+}
+
+// mockAuthValidator implements auth.Validator for testing
+type mockAuthValidator struct{}
+
+func (m *mockAuthValidator) Validate(ctx context.Context, token string, audience string) (auth.AuthToken, error) {
+	return &mockAuthToken{
+		email:   "test@example.com",
+		isAdmin: true,
+	}, nil
+}
+
 func TestNewAPI(t *testing.T) {
-	manager := &mockAssetsManager{}
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cdnBaseURL := "https://cdn.example.com"
+	authValidator := &mockAuthValidator{}
 
-	api := NewAPI(manager, logger, LOCAL, cdnBaseURL, nil)
+	api := NewAPI(manager, logger, LOCAL, cdnBaseURL, authValidator)
 
 	if api == nil {
 		t.Fatal("NewAPI() returned nil")
@@ -116,7 +197,8 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 		HasNextPage: false,
 	}
 
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
 		getAssetsFunc: func(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error) {
 			if path != "/" {
 				t.Errorf("GetAssets called with path %q, want %q", path, "/")
@@ -127,9 +209,10 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 			return expectedResponse, nil
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	limit := 10
 	request := GetAssetsV1RequestObject{
@@ -160,14 +243,16 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 }
 
 func TestAPI_GetAssetsV1_InvalidCursor(t *testing.T) {
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
 		getAssetsFunc: func(ctx context.Context, path string, limit int32, cursor *string) (assets.GetAssetsResponse, error) {
 			return assets.GetAssetsResponse{}, assets.NewInvalidCursorError("invalid cursor", nil)
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	limit := 10
 	cursor := "invalid"
@@ -208,7 +293,8 @@ func TestAPI_GetAssetsV1ByPath_Success(t *testing.T) {
 		CreatedBy:   "user@example.com",
 	}
 
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
 		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
 			if fullPath != "/test.txt" {
 				t.Errorf("GetAsset called with path %q, want %q", fullPath, "/test.txt")
@@ -216,9 +302,10 @@ func TestAPI_GetAssetsV1ByPath_Success(t *testing.T) {
 			return expectedFile, nil
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	request := GetAssetsV1ByPathRequestObject{
 		Params: GetAssetsV1ByPathParams{
@@ -247,14 +334,16 @@ func TestAPI_GetAssetsV1ByPath_Success(t *testing.T) {
 }
 
 func TestAPI_GetAssetsV1ByPath_NotFound(t *testing.T) {
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
 		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
 			return nil, assets.NewNotFoundError("not found", nil)
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	request := GetAssetsV1ByPathRequestObject{
 		Params: GetAssetsV1ByPathParams{
@@ -313,8 +402,8 @@ func TestFileToAPI(t *testing.T) {
 	if apiFile.Size != 1024 {
 		t.Errorf("Size = %d, want 1024", apiFile.Size)
 	}
-	if apiFile.Status != FileStatusConfirmed {
-		t.Errorf("Status = %v, want %v", apiFile.Status, FileStatusConfirmed)
+	if apiFile.Status != Confirmed {
+		t.Errorf("Status = %v, want %v", apiFile.Status, Confirmed)
 	}
 	if apiFile.Url == "" {
 		t.Error("Url should not be empty")
@@ -414,7 +503,20 @@ func TestAssetToAPI_Folder(t *testing.T) {
 }
 
 func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{
+		deleteObjectFunc: func(ctx context.Context, assetID uuid.UUID) error {
+			return nil
+		},
+	}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			// Return a mock file for deletion
+			return &assets.File{
+				ID:   uuid.New(),
+				Path: fullPath,
+				Name: "test.txt",
+			}, nil
+		},
 		deleteAssetFunc: func(ctx context.Context, fullPath string) error {
 			if fullPath != "/test.txt" {
 				t.Errorf("DeleteAsset called with path %q, want %q", fullPath, "/test.txt")
@@ -422,9 +524,10 @@ func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
 			return nil
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -444,14 +547,16 @@ func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
 }
 
 func TestAPI_DeleteAssetsV1ByPath_NotFound(t *testing.T) {
-	manager := &mockAssetsManager{
-		deleteAssetFunc: func(ctx context.Context, fullPath string) error {
-			return assets.NewNotFoundError("not found", nil)
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			return nil, assets.NewNotFoundError("not found", nil)
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -475,14 +580,25 @@ func TestAPI_DeleteAssetsV1ByPath_NotFound(t *testing.T) {
 }
 
 func TestAPI_DeleteAssetsV1ByPath_FolderNotEmpty(t *testing.T) {
-	manager := &mockAssetsManager{
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			// Return a mock folder
+			return &assets.Folder{
+				ID:           uuid.New(),
+				Path:         "/",
+				Name:         "folder",
+				ContentCount: 1, // Not empty
+			}, nil
+		},
 		deleteAssetFunc: func(ctx context.Context, fullPath string) error {
 			return assets.NewFolderNotEmptyError("folder not empty")
 		},
 	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", nil)
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{

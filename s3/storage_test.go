@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -17,13 +18,13 @@ import (
 func setupLocalStack(t *testing.T) (*s3.Client, string, func()) {
 	ctx := context.Background()
 
-	localstackContainer, err := localstack.Run(ctx, "localstack/localstack:3.0")
+	localstackContainer, err := localstack.RunContainer(ctx, testcontainers.WithImage("localstack/localstack:3.0"))
 	if err != nil {
 		t.Fatalf("Failed to start LocalStack container: %v", err)
 	}
 
 	cleanup := func() {
-		if err := testcontainers.TerminateContainer(localstackContainer); err != nil {
+		if err := localstackContainer.Terminate(ctx); err != nil {
 			t.Logf("Failed to terminate container: %v", err)
 		}
 	}
@@ -161,7 +162,7 @@ func TestStorage_HeadObject_Exists(t *testing.T) {
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(bucketName),
 		Key:         aws.String(objectKey),
-		Body:        aws.ReadSeekCloser(aws.NewReadCloser([]byte(content))),
+		Body:        bytes.NewReader([]byte(content)),
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
@@ -218,7 +219,7 @@ func TestStorage_DeleteObject(t *testing.T) {
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(objectKey),
-		Body:   aws.ReadSeekCloser(aws.NewReadCloser([]byte("test content"))),
+		Body:   bytes.NewReader([]byte("test content")),
 	})
 	if err != nil {
 		t.Fatalf("Failed to put object: %v", err)

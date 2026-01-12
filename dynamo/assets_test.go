@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
-	"github.com/International-Combat-Archery-Alliance/assets-api/ptr"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -35,7 +34,7 @@ func setupDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 	}
 
 	cleanup := func() {
-		if err := testcontainers.TerminateContainer(container); err != nil {
+		if err := container.Terminate(ctx); err != nil {
 			t.Logf("Failed to terminate container: %v", err)
 		}
 	}
@@ -284,12 +283,12 @@ func TestDB_CreateAsset_AlreadyExists(t *testing.T) {
 	}
 
 	folder := &assets.Folder{
-		ID:          uuid.New(),
-		Path:        "/",
-		Name:        "test-folder",
-		CreatedAt:   time.Now().UTC(),
-		CreatedBy:   "user@example.com",
-		Version:     0,
+		ID:        uuid.New(),
+		Path:      "/",
+		Name:      "test-folder",
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: "user@example.com",
+		Version:   0,
 	}
 
 	err = db.CreateAsset(ctx, folder)
