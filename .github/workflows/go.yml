@@ -18,6 +18,27 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+        options: >-
+          --health-cmd "curl -f http://localhost:8000/ || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      localstack:
+        image: localstack/localstack:3.0
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3
+        options: >-
+          --health-cmd "awslocal s3 ls || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
     - uses: actions/checkout@v4
 
@@ -28,9 +49,6 @@ jobs:
 
     - name: Generate
       run: go generate -v ./...
-
-    - name: Setup DynamoDB Local
-      uses: rrainn/dynamodb-action@v4.0.0
 
     - name: Build
       run: go build -v ./...

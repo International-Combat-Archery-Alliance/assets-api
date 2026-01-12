@@ -3,6 +3,7 @@ package s3
 import (
 	"bytes"
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -15,9 +16,57 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/localstack"
 )
 
+const testBucketName = "test-bucket"
+
 func setupLocalStack(t *testing.T) (*s3.Client, string, func()) {
 	ctx := context.Background()
 
+	// Check if running in CI
+	if _, ok := os.LookupEnv("TEST_IN_CI"); ok {
+		return setupLocalStackInCI(t, ctx)
+	}
+	return setupLocalStackTestContainers(t, ctx)
+}
+
+func setupLocalStackInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
+				AccessKeyID:     "test",
+				SecretAccessKey: "test",
+				SessionToken:    "",
+				Source:          "Mock credentials used for local instance",
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to load AWS config: %v", err)
+	}
+
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:4566")
+		o.UsePathStyle = true
+	})
+
+	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
+		Bucket: aws.String(testBucketName),
+	})
+	if err != nil {
+		t.Fatalf("Failed to create bucket: %v", err)
+	}
+
+	cleanup := func() {
+		// In CI, just delete the bucket to clean up
+		_, _ = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+			Bucket: aws.String(testBucketName),
+		})
+	}
+
+	return client, testBucketName, cleanup
+}
+
+func setupLocalStackTestContainers(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
 	localstackContainer, err := localstack.RunContainer(ctx, testcontainers.WithImage("localstack/localstack:3.0"))
 	if err != nil {
 		t.Fatalf("Failed to start LocalStack container: %v", err)
@@ -57,16 +106,15 @@ func setupLocalStack(t *testing.T) (*s3.Client, string, func()) {
 		o.UsePathStyle = true
 	})
 
-	bucketName := "test-bucket"
 	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(testBucketName),
 	})
 	if err != nil {
 		cleanup()
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	return client, bucketName, cleanup
+	return client, testBucketName, cleanup
 }
 
 func TestNewStorage(t *testing.T) {

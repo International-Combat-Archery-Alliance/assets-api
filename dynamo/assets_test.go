@@ -2,6 +2,7 @@ package dynamo
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -16,9 +17,54 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
+const testTableName = "test-assets-table"
+
 func setupDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 	ctx := context.Background()
 
+	// Check if running in CI
+	if _, ok := os.LookupEnv("TEST_IN_CI"); ok {
+		return setupDynamoDBInCI(t, ctx)
+	}
+	return setupDynamoDBTestContainers(t, ctx)
+}
+
+func setupDynamoDBInCI(t *testing.T, ctx context.Context) (*dynamodb.Client, string, func()) {
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion("localhost"),
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
+				AccessKeyID:     "local",
+				SecretAccessKey: "local",
+				SessionToken:    "",
+				Source:          "Mock credentials used for local instance",
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Failed to load AWS config: %v", err)
+	}
+
+	client := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:8000")
+	})
+
+	err = createTable(ctx, client, testTableName)
+	if err != nil {
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	cleanup := func() {
+		// In CI, just delete the table to clean up
+		_, _ = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+			TableName: aws.String(testTableName),
+		})
+	}
+
+	return client, testTableName, cleanup
+}
+
+func setupDynamoDBTestContainers(t *testing.T, ctx context.Context) (*dynamodb.Client, string, func()) {
 	req := testcontainers.ContainerRequest{
 		Image:        "amazon/dynamodb-local:latest",
 		ExposedPorts: []string{"8000/tcp"},
@@ -66,8 +112,17 @@ func setupDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 
-	tableName := "test-assets-table"
-	_, err = client.CreateTable(ctx, &dynamodb.CreateTableInput{
+	err = createTable(ctx, client, testTableName)
+	if err != nil {
+		cleanup()
+		t.Fatalf("Failed to create table: %v", err)
+	}
+
+	return client, testTableName, cleanup
+}
+
+func createTable(ctx context.Context, client *dynamodb.Client, tableName string) error {
+	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
@@ -91,12 +146,7 @@ func setupDynamoDB(t *testing.T) (*dynamodb.Client, string, func()) {
 		},
 		BillingMode: types.BillingModePayPerRequest,
 	})
-	if err != nil {
-		cleanup()
-		t.Fatalf("Failed to create table: %v", err)
-	}
-
-	return client, tableName, cleanup
+	return err
 }
 
 func TestNewDB(t *testing.T) {
