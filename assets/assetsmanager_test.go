@@ -288,6 +288,7 @@ func TestAssetsManager_ConfirmFileUpload_Success(t *testing.T) {
 		Status:      StatusPending,
 		ContentType: "text/plain",
 		Size:        0,
+		ObjectKey:   fileID.String(),
 		Version:     0,
 	}
 
