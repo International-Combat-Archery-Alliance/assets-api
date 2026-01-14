@@ -108,6 +108,15 @@ func (a *API) getAdminEmailFromCtx(ctx context.Context) (string, error) {
 	return jwt.UserEmail(), nil
 }
 
+// isAdmin checks if the user in the context is an admin
+func (a *API) isAdmin(ctx context.Context) bool {
+	jwt, ok := middleware.GetJWTFromCtx(ctx)
+	if !ok {
+		return false
+	}
+	return jwt.IsAdmin()
+}
+
 // GetAssetsV1 returns all assets at a path
 func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject) (GetAssetsV1ResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)
@@ -130,9 +139,34 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 		}, nil
 	}
 
-	apiAssets := make([]Asset, len(result.Data))
+	// Return admin response with full details if user is admin, otherwise return public response
+	if a.isAdmin(ctx) {
+		adminAssets := make([]GetAssetsV1200JSONResponse_Data_Item, len(result.Data))
+		for i, asset := range result.Data {
+			adminAsset, err := assetToAdminAPI(asset, a.cdnBaseURL)
+			if err != nil {
+				return GetAssetsV1500JSONResponse{
+					Code:    InternalError,
+					Message: "Failed to get assets",
+				}, nil
+			}
+
+			var item GetAssetsV1200JSONResponse_Data_Item
+			_ = item.FromAdminAsset(adminAsset)
+			adminAssets[i] = item
+		}
+
+		return GetAssetsV1200JSONResponse{
+			Data:        adminAssets,
+			Cursor:      result.Cursor,
+			HasNextPage: result.HasNextPage,
+		}, nil
+	}
+
+	// Return public response with limited details
+	publicAssets := make([]GetAssetsV1200JSONResponse_Data_Item, len(result.Data))
 	for i, asset := range result.Data {
-		apiAsset, err := assetToAPI(asset, a.cdnBaseURL)
+		publicAsset, err := assetToPublicAPI(asset, a.cdnBaseURL)
 		if err != nil {
 			return GetAssetsV1500JSONResponse{
 				Code:    InternalError,
@@ -140,11 +174,13 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 			}, nil
 		}
 
-		apiAssets[i] = apiAsset
+		var item GetAssetsV1200JSONResponse_Data_Item
+		_ = item.FromPublicAsset(publicAsset)
+		publicAssets[i] = item
 	}
 
 	return GetAssetsV1200JSONResponse{
-		Data:        apiAssets,
+		Data:        publicAssets,
 		Cursor:      result.Cursor,
 		HasNextPage: result.HasNextPage,
 	}, nil
@@ -191,7 +227,7 @@ func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1Folde
 	}
 
 	return PostAssetsV1Folders201JSONResponse{
-		Folder: folderToAPI(folder),
+		Folder: folderToAdminAPI(folder),
 	}, nil
 }
 
@@ -258,7 +294,26 @@ func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRe
 		}, nil
 	}
 
-	apiAsset, err := assetToAPI(asset, a.cdnBaseURL)
+	// Return admin response with full details if user is admin, otherwise return public response
+	if a.isAdmin(ctx) {
+		adminAsset, err := assetToAdminAPI(asset, a.cdnBaseURL)
+		if err != nil {
+			return GetAssetsV1ByPath500JSONResponse{
+				Code:    InternalError,
+				Message: "Failed to get asset",
+			}, nil
+		}
+
+		var item GetAssetsV1ByPath200JSONResponse_Asset
+		_ = item.FromAdminAsset(adminAsset)
+
+		return GetAssetsV1ByPath200JSONResponse{
+			Asset: item,
+		}, nil
+	}
+
+	// Return public response with limited details
+	publicAsset, err := assetToPublicAPI(asset, a.cdnBaseURL)
 	if err != nil {
 		return GetAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
@@ -266,8 +321,11 @@ func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRe
 		}, nil
 	}
 
+	var item GetAssetsV1ByPath200JSONResponse_Asset
+	_ = item.FromPublicAsset(publicAsset)
+
 	return GetAssetsV1ByPath200JSONResponse{
-		Asset: apiAsset,
+		Asset: item,
 	}, nil
 }
 
@@ -336,7 +394,7 @@ func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV
 		}, nil
 	}
 
-	apiFile, err := fileToAPI(file, a.cdnBaseURL)
+	apiFile, err := fileToAdminAPI(file, a.cdnBaseURL)
 	if err != nil {
 		return PostAssetsV1ByPathConfirm500JSONResponse{
 			Code:    InternalError,
@@ -404,5 +462,110 @@ func folderToAPI(folder *assets.Folder) Folder {
 		ContentCount: folder.ContentCount,
 		CreatedAt:    &createdAt,
 		CreatedBy:    &folder.CreatedBy,
+	}
+}
+
+// assetToAdminAPI converts a domain asset to an admin API asset (full details)
+func assetToAdminAPI(asset assets.Asset, cdnBaseURL string) (AdminAsset, error) {
+	var apiAsset AdminAsset
+
+	switch a := asset.(type) {
+	case *assets.File:
+		file, err := fileToAdminAPI(a, cdnBaseURL)
+		if err != nil {
+			return AdminAsset{}, err
+		}
+		_ = apiAsset.FromAdminFile(file)
+	case *assets.Folder:
+		_ = apiAsset.FromAdminFolder(folderToAdminAPI(a))
+	}
+
+	return apiAsset, nil
+}
+
+// fileToAdminAPI converts a domain file to an admin API file
+func fileToAdminAPI(file *assets.File, cdnBaseURL string) (AdminFile, error) {
+	id := openapi_types.UUID(file.ID)
+	createdAt := file.CreatedAt
+	url, err := file.URL(cdnBaseURL)
+	if err != nil {
+		return AdminFile{}, fmt.Errorf("failed to create URL for file: %w", err)
+	}
+
+	return AdminFile{
+		Type:        AssetTypeFile,
+		Id:          &id,
+		Path:        file.Path,
+		Name:        file.Name,
+		Description: file.Description,
+		ContentType: file.ContentType,
+		Size:        file.Size,
+		Url:         url,
+		Status:      FileStatus(file.Status),
+		CreatedAt:   &createdAt,
+		CreatedBy:   &file.CreatedBy,
+	}, nil
+}
+
+// folderToAdminAPI converts a domain folder to an admin API folder
+func folderToAdminAPI(folder *assets.Folder) AdminFolder {
+	id := openapi_types.UUID(folder.ID)
+	createdAt := folder.CreatedAt
+	return AdminFolder{
+		Type:         AssetTypeFolder,
+		Id:           &id,
+		Path:         folder.Path,
+		Name:         folder.Name,
+		Description:  folder.Description,
+		ContentCount: folder.ContentCount,
+		CreatedAt:    &createdAt,
+		CreatedBy:    &folder.CreatedBy,
+	}
+}
+
+// assetToPublicAPI converts a domain asset to a public API asset (limited details)
+func assetToPublicAPI(asset assets.Asset, cdnBaseURL string) (PublicAsset, error) {
+	var apiAsset PublicAsset
+
+	switch a := asset.(type) {
+	case *assets.File:
+		file, err := fileToPublicAPI(a, cdnBaseURL)
+		if err != nil {
+			return PublicAsset{}, err
+		}
+		_ = apiAsset.FromPublicFile(file)
+	case *assets.Folder:
+		_ = apiAsset.FromPublicFolder(folderToPublicAPI(a))
+	}
+
+	return apiAsset, nil
+}
+
+// fileToPublicAPI converts a domain file to a public API file
+func fileToPublicAPI(file *assets.File, cdnBaseURL string) (PublicFile, error) {
+	url, err := file.URL(cdnBaseURL)
+	if err != nil {
+		return PublicFile{}, fmt.Errorf("failed to create URL for file: %w", err)
+	}
+
+	return PublicFile{
+		Type:        AssetTypeFile,
+		Path:        file.Path,
+		Name:        file.Name,
+		Description: file.Description,
+		ContentType: file.ContentType,
+		Size:        file.Size,
+		Url:         url,
+	}, nil
+}
+
+// folderToPublicAPI converts a domain folder to a public API folder
+func folderToPublicAPI(folder *assets.Folder) PublicFolder {
+	return PublicFolder{
+		Type:         AssetTypeFolder,
+		Path:         folder.Path,
+		Name:         folder.Name,
+		Description:  folder.Description,
+		ContentCount: folder.ContentCount,
 	}
 }

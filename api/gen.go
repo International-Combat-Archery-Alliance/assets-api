@@ -32,8 +32,8 @@ const (
 
 // Defines values for AssetType.
 const (
-	AssetTypeFile   AssetType = "file"
-	AssetTypeFolder AssetType = "folder"
+	File   AssetType = "file"
+	Folder AssetType = "folder"
 )
 
 // Defines values for ErrorCode.
@@ -61,9 +61,49 @@ const (
 	Pending   FileStatus = "pending"
 )
 
-// Asset defines model for Asset.
-type Asset struct {
+// AdminAsset defines model for AdminAsset.
+type AdminAsset struct {
 	union json.RawMessage
+}
+
+// AdminFile defines model for AdminFile.
+type AdminFile struct {
+	ContentType string     `json:"contentType"`
+	CreatedAt   *time.Time `json:"createdAt,omitempty"`
+
+	// CreatedBy Email of the admin who uploaded the file
+	CreatedBy   *string             `json:"createdBy,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	Id          *openapi_types.UUID `json:"id,omitempty"`
+	Name        string              `json:"name"`
+
+	// Path Parent folder path
+	Path string `json:"path"`
+
+	// Size File size in bytes
+	Size   int64      `json:"size"`
+	Status FileStatus `json:"status"`
+	Type   AssetType  `json:"type"`
+
+	// Url CDN URL for the file
+	Url string `json:"url"`
+}
+
+// AdminFolder defines model for AdminFolder.
+type AdminFolder struct {
+	// ContentCount Number of items (files and folders) directly in this folder
+	ContentCount int        `json:"contentCount"`
+	CreatedAt    *time.Time `json:"createdAt,omitempty"`
+
+	// CreatedBy Email of the admin who created the folder
+	CreatedBy   *string             `json:"createdBy,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	Id          *openapi_types.UUID `json:"id,omitempty"`
+	Name        string              `json:"name"`
+
+	// Path Parent folder path
+	Path string    `json:"path"`
+	Type AssetType `json:"type"`
 }
 
 // AssetType defines model for AssetType.
@@ -90,43 +130,37 @@ type Error struct {
 // ErrorCode defines model for ErrorCode.
 type ErrorCode string
 
-// File defines model for File.
-type File struct {
-	ContentType string     `json:"contentType"`
-	CreatedAt   *time.Time `json:"createdAt,omitempty"`
+// FileStatus defines model for FileStatus.
+type FileStatus string
 
-	// CreatedBy Email of the admin who uploaded the file
-	CreatedBy   *string             `json:"createdBy,omitempty"`
-	Description *string             `json:"description,omitempty"`
-	Id          *openapi_types.UUID `json:"id,omitempty"`
-	Name        string              `json:"name"`
+// PublicAsset defines model for PublicAsset.
+type PublicAsset struct {
+	union json.RawMessage
+}
+
+// PublicFile defines model for PublicFile.
+type PublicFile struct {
+	ContentType string  `json:"contentType"`
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
 
 	// Path Parent folder path
 	Path string `json:"path"`
 
 	// Size File size in bytes
-	Size   int64      `json:"size"`
-	Status FileStatus `json:"status"`
-	Type   AssetType  `json:"type"`
+	Size int64     `json:"size"`
+	Type AssetType `json:"type"`
 
 	// Url CDN URL for the file
 	Url string `json:"url"`
 }
 
-// FileStatus defines model for FileStatus.
-type FileStatus string
-
-// Folder defines model for Folder.
-type Folder struct {
+// PublicFolder defines model for PublicFolder.
+type PublicFolder struct {
 	// ContentCount Number of items (files and folders) directly in this folder
-	ContentCount int        `json:"contentCount"`
-	CreatedAt    *time.Time `json:"createdAt,omitempty"`
-
-	// CreatedBy Email of the admin who created the folder
-	CreatedBy   *string             `json:"createdBy,omitempty"`
-	Description *string             `json:"description,omitempty"`
-	Id          *openapi_types.UUID `json:"id,omitempty"`
-	Name        string              `json:"name"`
+	ContentCount int     `json:"contentCount"`
+	Description  *string `json:"description,omitempty"`
+	Name         string  `json:"name"`
 
 	// Path Parent folder path
 	Path string    `json:"path"`
@@ -199,23 +233,23 @@ type PostAssetsV1FoldersJSONRequestBody = CreateFolderRequest
 // PostAssetsV1UploadUrlJSONRequestBody defines body for PostAssetsV1UploadUrl for application/json ContentType.
 type PostAssetsV1UploadUrlJSONRequestBody = UploadRequest
 
-// AsFile returns the union data inside the Asset as a File
-func (t Asset) AsFile() (File, error) {
-	var body File
+// AsAdminFile returns the union data inside the AdminAsset as a AdminFile
+func (t AdminAsset) AsAdminFile() (AdminFile, error) {
+	var body AdminFile
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromFile overwrites any union data inside the Asset as the provided File
-func (t *Asset) FromFile(v File) error {
+// FromAdminFile overwrites any union data inside the AdminAsset as the provided AdminFile
+func (t *AdminAsset) FromAdminFile(v AdminFile) error {
 	v.Type = "file"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeFile performs a merge with any union data inside the Asset, using the provided File
-func (t *Asset) MergeFile(v File) error {
+// MergeAdminFile performs a merge with any union data inside the AdminAsset, using the provided AdminFile
+func (t *AdminAsset) MergeAdminFile(v AdminFile) error {
 	v.Type = "file"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -227,23 +261,23 @@ func (t *Asset) MergeFile(v File) error {
 	return err
 }
 
-// AsFolder returns the union data inside the Asset as a Folder
-func (t Asset) AsFolder() (Folder, error) {
-	var body Folder
+// AsAdminFolder returns the union data inside the AdminAsset as a AdminFolder
+func (t AdminAsset) AsAdminFolder() (AdminFolder, error) {
+	var body AdminFolder
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromFolder overwrites any union data inside the Asset as the provided Folder
-func (t *Asset) FromFolder(v Folder) error {
+// FromAdminFolder overwrites any union data inside the AdminAsset as the provided AdminFolder
+func (t *AdminAsset) FromAdminFolder(v AdminFolder) error {
 	v.Type = "folder"
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeFolder performs a merge with any union data inside the Asset, using the provided Folder
-func (t *Asset) MergeFolder(v Folder) error {
+// MergeAdminFolder performs a merge with any union data inside the AdminAsset, using the provided AdminFolder
+func (t *AdminAsset) MergeAdminFolder(v AdminFolder) error {
 	v.Type = "folder"
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -255,7 +289,7 @@ func (t *Asset) MergeFolder(v Folder) error {
 	return err
 }
 
-func (t Asset) Discriminator() (string, error) {
+func (t AdminAsset) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"type"`
 	}
@@ -263,27 +297,116 @@ func (t Asset) Discriminator() (string, error) {
 	return discriminator.Discriminator, err
 }
 
-func (t Asset) ValueByDiscriminator() (interface{}, error) {
+func (t AdminAsset) ValueByDiscriminator() (interface{}, error) {
 	discriminator, err := t.Discriminator()
 	if err != nil {
 		return nil, err
 	}
 	switch discriminator {
 	case "file":
-		return t.AsFile()
+		return t.AsAdminFile()
 	case "folder":
-		return t.AsFolder()
+		return t.AsAdminFolder()
 	default:
 		return nil, errors.New("unknown discriminator value: " + discriminator)
 	}
 }
 
-func (t Asset) MarshalJSON() ([]byte, error) {
+func (t AdminAsset) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
 }
 
-func (t *Asset) UnmarshalJSON(b []byte) error {
+func (t *AdminAsset) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsPublicFile returns the union data inside the PublicAsset as a PublicFile
+func (t PublicAsset) AsPublicFile() (PublicFile, error) {
+	var body PublicFile
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPublicFile overwrites any union data inside the PublicAsset as the provided PublicFile
+func (t *PublicAsset) FromPublicFile(v PublicFile) error {
+	v.Type = "file"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePublicFile performs a merge with any union data inside the PublicAsset, using the provided PublicFile
+func (t *PublicAsset) MergePublicFile(v PublicFile) error {
+	v.Type = "file"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsPublicFolder returns the union data inside the PublicAsset as a PublicFolder
+func (t PublicAsset) AsPublicFolder() (PublicFolder, error) {
+	var body PublicFolder
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPublicFolder overwrites any union data inside the PublicAsset as the provided PublicFolder
+func (t *PublicAsset) FromPublicFolder(v PublicFolder) error {
+	v.Type = "folder"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePublicFolder performs a merge with any union data inside the PublicAsset, using the provided PublicFolder
+func (t *PublicAsset) MergePublicFolder(v PublicFolder) error {
+	v.Type = "folder"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t PublicAsset) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t PublicAsset) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "file":
+		return t.AsPublicFile()
+	case "folder":
+		return t.AsPublicFolder()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t PublicAsset) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *PublicAsset) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -323,14 +446,6 @@ type MiddlewareFunc func(http.Handler) http.Handler
 func (siw *ServerInterfaceWrapper) GetAssetsV1(w http.ResponseWriter, r *http.Request) {
 
 	var err error
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
-
-	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
-
-	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetAssetsV1Params
@@ -423,14 +538,6 @@ func (siw *ServerInterfaceWrapper) DeleteAssetsV1ByPath(w http.ResponseWriter, r
 func (siw *ServerInterfaceWrapper) GetAssetsV1ByPath(w http.ResponseWriter, r *http.Request) {
 
 	var err error
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
-
-	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
-
-	r = r.WithContext(ctx)
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params GetAssetsV1ByPathParams
@@ -686,9 +793,9 @@ type GetAssetsV1ResponseObject interface {
 }
 
 type GetAssetsV1200JSONResponse struct {
-	Cursor      *string `json:"cursor,omitempty"`
-	Data        []Asset `json:"data"`
-	HasNextPage bool    `json:"hasNextPage"`
+	Cursor      *string                                `json:"cursor,omitempty"`
+	Data        []GetAssetsV1200JSONResponse_Data_Item `json:"data"`
+	HasNextPage bool                                   `json:"hasNextPage"`
 }
 
 func (response GetAssetsV1200JSONResponse) VisitGetAssetsV1Response(w http.ResponseWriter) error {
@@ -777,7 +884,7 @@ type GetAssetsV1ByPathResponseObject interface {
 }
 
 type GetAssetsV1ByPath200JSONResponse struct {
-	Asset Asset `json:"asset"`
+	Asset GetAssetsV1ByPath200JSONResponse_Asset `json:"asset"`
 }
 
 func (response GetAssetsV1ByPath200JSONResponse) VisitGetAssetsV1ByPathResponse(w http.ResponseWriter) error {
@@ -823,7 +930,7 @@ type PostAssetsV1ByPathConfirmResponseObject interface {
 }
 
 type PostAssetsV1ByPathConfirm200JSONResponse struct {
-	File File `json:"file"`
+	File AdminFile `json:"file"`
 }
 
 func (response PostAssetsV1ByPathConfirm200JSONResponse) VisitPostAssetsV1ByPathConfirmResponse(w http.ResponseWriter) error {
@@ -887,7 +994,7 @@ type PostAssetsV1FoldersResponseObject interface {
 }
 
 type PostAssetsV1Folders201JSONResponse struct {
-	Folder Folder `json:"folder"`
+	Folder AdminFolder `json:"folder"`
 }
 
 func (response PostAssetsV1Folders201JSONResponse) VisitPostAssetsV1FoldersResponse(w http.ResponseWriter) error {
@@ -1215,54 +1322,58 @@ func (sh *strictHandler) PostAssetsV1UploadUrl(w http.ResponseWriter, r *http.Re
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"Uy5VZ73RaNTx/fX9/wMAAP//FjB/4P82AAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
