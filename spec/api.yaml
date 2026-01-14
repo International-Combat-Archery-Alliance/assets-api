@@ -15,10 +15,16 @@ paths:
   /assets/v1:
     get:
       summary: Get all assets at a path
-      description: Retrieves a list of all assets (files and folders) at the specified path
+      description: |
+        Retrieves a list of all assets (files and folders) at the specified path.
+
+        **Authentication:**
+        - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
+        - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - googleCookieAuth: []
+        - googleBearerAuth: []
+        - {}  # Allow unauthenticated access
       parameters:
         - name: path
           in: query
@@ -46,7 +52,7 @@ paths:
             example: 20
       responses:
         '200':
-          description: A list of assets.
+          description: A list of assets. Returns AdminAsset for authenticated admin users, PublicAsset for others.
           content:
             application/json:
               schema:
@@ -58,7 +64,9 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Asset'
+                      oneOf:
+                        - $ref: '#/components/schemas/AdminAsset'
+                        - $ref: '#/components/schemas/PublicAsset'
                   cursor:
                     type: string
                     example: "Y29uZ3JhdHMsIHlvdSBmb3VuZCB0aGUgZWFzdGVyIGVnZw=="
@@ -103,7 +111,7 @@ paths:
                   - folder
                 properties:
                   folder:
-                    $ref: '#/components/schemas/Folder'
+                    $ref: '#/components/schemas/AdminFolder'
         '400':
           description: Bad request.
           content:
@@ -184,10 +192,16 @@ paths:
   /assets/v1/by-path:
     get:
       summary: Get an asset
-      description: Get one asset (file or folder) by full path
+      description: |
+        Get one asset (file or folder) by full path.
+
+        **Authentication:**
+        - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
+        - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - googleCookieAuth: []
+        - googleBearerAuth: []
+        - {}  # Allow unauthenticated access
       parameters:
         - name: path
           in: query
@@ -198,7 +212,7 @@ paths:
             example: /images/hero.png
       responses:
         '200':
-          description: The asset
+          description: The asset. Returns AdminAsset for authenticated admin users, PublicAsset for others.
           content:
             application/json:
               schema:
@@ -207,7 +221,9 @@ paths:
                   - asset
                 properties:
                   asset:
-                    $ref: '#/components/schemas/Asset'
+                    oneOf:
+                      - $ref: '#/components/schemas/AdminAsset'
+                      - $ref: '#/components/schemas/PublicAsset'
         '400':
           description: Bad request.
           content:
@@ -294,7 +310,7 @@ paths:
                   - file
                 properties:
                   file:
-                    $ref: '#/components/schemas/File'
+                    $ref: '#/components/schemas/AdminFile'
         '400':
           description: Bad request (e.g., file not uploaded yet, or asset is not a file).
           content:
@@ -343,37 +359,21 @@ components:
         - file
         - folder
       example: file
-    Asset:
-      oneOf:
-        - $ref: '#/components/schemas/File'
-        - $ref: '#/components/schemas/Folder'
-      discriminator:
-        propertyName: type
-        mapping:
-          file: '#/components/schemas/File'
-          folder: '#/components/schemas/Folder'
-    File:
+
+    # Public schemas (minimal information for general users)
+    PublicFile:
       type: object
       required:
         - type
-        - id
         - path
         - name
         - contentType
         - size
         - url
-        - status
-        - createdAt
-        - createdBy
       properties:
         type:
           $ref: '#/components/schemas/AssetType'
           example: file
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-          example: 00000000-0000-0000-0000-000000000000
         path:
           type: string
           description: Parent folder path
@@ -400,37 +400,18 @@ components:
           type: string
           description: CDN URL for the file
           example: https://assets.icaa.world/abc123
-        status:
-          $ref: '#/components/schemas/FileStatus'
-        createdAt:
-          type: string
-          format: date-time
-          readOnly: true
-          example: "2025-08-19T18:46:53.185Z"
-        createdBy:
-          type: string
-          readOnly: true
-          description: Email of the admin who uploaded the file
-          example: admin@icaa.world
-    Folder:
+
+    PublicFolder:
       type: object
       required:
         - type
-        - id
         - path
         - name
         - contentCount
-        - createdAt
-        - createdBy
       properties:
         type:
           $ref: '#/components/schemas/AssetType'
           example: folder
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-          example: 00000000-0000-0000-0000-000000000000
         path:
           type: string
           description: Parent folder path
@@ -448,16 +429,93 @@ components:
           type: integer
           description: Number of items (files and folders) directly in this folder
           example: 5
-        createdAt:
-          type: string
-          format: date-time
-          readOnly: true
-          example: "2025-08-19T18:46:53.185Z"
-        createdBy:
-          type: string
-          readOnly: true
-          description: Email of the admin who created the folder
-          example: admin@icaa.world
+
+    PublicAsset:
+      oneOf:
+        - $ref: '#/components/schemas/PublicFile'
+        - $ref: '#/components/schemas/PublicFolder'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/PublicFile'
+          folder: '#/components/schemas/PublicFolder'
+
+    # Admin schemas (full information including metadata)
+    AdminFile:
+      allOf:
+        - $ref: '#/components/schemas/PublicFile'
+        - type: object
+          required:
+            - id
+            - status
+            - createdAt
+            - createdBy
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+              example: 00000000-0000-0000-0000-000000000000
+            status:
+              $ref: '#/components/schemas/FileStatus'
+            createdAt:
+              type: string
+              format: date-time
+              readOnly: true
+              example: "2025-08-19T18:46:53.185Z"
+            createdBy:
+              type: string
+              readOnly: true
+              description: Email of the admin who uploaded the file
+              example: admin@icaa.world
+
+    AdminFolder:
+      allOf:
+        - $ref: '#/components/schemas/PublicFolder'
+        - type: object
+          required:
+            - id
+            - createdAt
+            - createdBy
+          properties:
+            id:
+              type: string
+              format: uuid
+              readOnly: true
+              example: 00000000-0000-0000-0000-000000000000
+            createdAt:
+              type: string
+              format: date-time
+              readOnly: true
+              example: "2025-08-19T18:46:53.185Z"
+            createdBy:
+              type: string
+              readOnly: true
+              description: Email of the admin who created the folder
+              example: admin@icaa.world
+
+    AdminAsset:
+      oneOf:
+        - $ref: '#/components/schemas/AdminFile'
+        - $ref: '#/components/schemas/AdminFolder'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/AdminFile'
+          folder: '#/components/schemas/AdminFolder'
+
+    # Legacy schema for backwards compatibility (deprecated)
+    Asset:
+      oneOf:
+        - $ref: '#/components/schemas/AdminFile'
+        - $ref: '#/components/schemas/AdminFolder'
+      discriminator:
+        propertyName: type
+        mapping:
+          file: '#/components/schemas/AdminFile'
+          folder: '#/components/schemas/AdminFolder'
+      deprecated: true
+
     FileStatus:
       type: string
       enum:
