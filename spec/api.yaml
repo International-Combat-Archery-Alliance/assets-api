@@ -21,10 +21,7 @@ paths:
         **Authentication:**
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
-      security:
-        - googleCookieAuth: []
-        - googleBearerAuth: []
-        - {}  # Allow unauthenticated access
+      security: []
       parameters:
         - name: path
           in: query
@@ -198,10 +195,7 @@ paths:
         **Authentication:**
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
-      security:
-        - googleCookieAuth: []
-        - googleBearerAuth: []
-        - {}  # Allow unauthenticated access
+      security: []
       parameters:
         - name: path
           in: query
