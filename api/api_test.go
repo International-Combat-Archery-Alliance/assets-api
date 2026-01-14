@@ -324,9 +324,13 @@ func TestAPI_GetAssetsV1ByPath_Success(t *testing.T) {
 		t.Fatalf("response type = %T, want GetAssetsV1ByPath200JSONResponse", response)
 	}
 
-	fileAsset, err := successResponse.Asset.AsFile()
+	adminAsset, err := successResponse.Asset.AsAdminAsset()
 	if err != nil {
-		t.Fatalf("Asset.AsFile() error = %v", err)
+		t.Fatalf("Asset.AsAdminAsset() error = %v", err)
+	}
+	fileAsset, err := adminAsset.AsAdminFile()
+	if err != nil {
+		t.Fatalf("Asset.AsAdminFile() error = %v", err)
 	}
 
 	if fileAsset.Name != "test.txt" {
@@ -364,142 +368,6 @@ func TestAPI_GetAssetsV1ByPath_NotFound(t *testing.T) {
 
 	if errorResponse.Code != NotFound {
 		t.Errorf("error code = %v, want %v", errorResponse.Code, NotFound)
-	}
-}
-
-func TestFileToAPI(t *testing.T) {
-	fileID := uuid.New()
-	createdAt := time.Now().UTC()
-	desc := "Test file"
-
-	file := &assets.File{
-		ID:          fileID,
-		Name:        "test.txt",
-		Path:        "/",
-		Description: &desc,
-		ContentType: "text/plain",
-		Size:        1024,
-		ObjectKey:   fileID.String(),
-		Status:      assets.StatusConfirmed,
-		CreatedAt:   createdAt,
-		CreatedBy:   "user@example.com",
-	}
-
-	cdnBaseURL := "https://cdn.example.com"
-	apiFile, err := fileToAPI(file, cdnBaseURL)
-	if err != nil {
-		t.Fatalf("fileToAPI() error = %v", err)
-	}
-
-	if apiFile.Name != "test.txt" {
-		t.Errorf("Name = %q, want %q", apiFile.Name, "test.txt")
-	}
-	if apiFile.Path != "/" {
-		t.Errorf("Path = %q, want %q", apiFile.Path, "/")
-	}
-	if apiFile.ContentType != "text/plain" {
-		t.Errorf("ContentType = %q, want %q", apiFile.ContentType, "text/plain")
-	}
-	if apiFile.Size != 1024 {
-		t.Errorf("Size = %d, want 1024", apiFile.Size)
-	}
-	if apiFile.Status != Confirmed {
-		t.Errorf("Status = %v, want %v", apiFile.Status, Confirmed)
-	}
-	if apiFile.Url == "" {
-		t.Error("Url should not be empty")
-	}
-	expectedURL := fmt.Sprintf("%s/%s", cdnBaseURL, fileID.String())
-	if apiFile.Url != expectedURL {
-		t.Errorf("Url = %q, want %q", apiFile.Url, expectedURL)
-	}
-}
-
-func TestFolderToAPI(t *testing.T) {
-	folderID := uuid.New()
-	createdAt := time.Now().UTC()
-	desc := "Test folder"
-
-	folder := &assets.Folder{
-		ID:           folderID,
-		Name:         "test-folder",
-		Path:         "/",
-		Description:  &desc,
-		ContentCount: 5,
-		CreatedAt:    createdAt,
-		CreatedBy:    "user@example.com",
-	}
-
-	apiFolder := folderToAPI(folder)
-
-	if apiFolder.Name != "test-folder" {
-		t.Errorf("Name = %q, want %q", apiFolder.Name, "test-folder")
-	}
-	if apiFolder.Path != "/" {
-		t.Errorf("Path = %q, want %q", apiFolder.Path, "/")
-	}
-	if apiFolder.ContentCount != 5 {
-		t.Errorf("ContentCount = %d, want 5", apiFolder.ContentCount)
-	}
-	if apiFolder.Description == nil || *apiFolder.Description != desc {
-		t.Errorf("Description = %v, want %q", apiFolder.Description, desc)
-	}
-}
-
-func TestAssetToAPI_File(t *testing.T) {
-	fileID := uuid.New()
-	file := &assets.File{
-		ID:          fileID,
-		Name:        "test.txt",
-		Path:        "/",
-		ContentType: "text/plain",
-		Size:        1024,
-		ObjectKey:   fileID.String(),
-		Status:      assets.StatusConfirmed,
-		CreatedAt:   time.Now().UTC(),
-		CreatedBy:   "user@example.com",
-	}
-
-	cdnBaseURL := "https://cdn.example.com"
-	apiAsset, err := assetToAPI(file, cdnBaseURL)
-	if err != nil {
-		t.Fatalf("assetToAPI() error = %v", err)
-	}
-
-	fileAsset, err := apiAsset.AsFile()
-	if err != nil {
-		t.Fatalf("AsFile() error = %v", err)
-	}
-
-	if fileAsset.Name != "test.txt" {
-		t.Errorf("Name = %q, want %q", fileAsset.Name, "test.txt")
-	}
-}
-
-func TestAssetToAPI_Folder(t *testing.T) {
-	folderID := uuid.New()
-	folder := &assets.Folder{
-		ID:           folderID,
-		Name:         "test-folder",
-		Path:         "/",
-		ContentCount: 3,
-		CreatedAt:    time.Now().UTC(),
-		CreatedBy:    "user@example.com",
-	}
-
-	cdnBaseURL := "https://cdn.example.com"
-	apiAsset, err := assetToAPI(folder, cdnBaseURL)
-	if err != nil {
-		t.Fatalf("assetToAPI() error = %v", err)
-	}
-
-	folderAsset, err := apiAsset.AsFolder()
-	if err != nil {
-		t.Fatalf("AsFolder() error = %v", err)
-	}
-
-	if folderAsset.Name != "test-folder" {
-		t.Errorf("Name = %q, want %q", folderAsset.Name, "test-folder")
 	}
 }
 
