@@ -61,9 +61,7 @@ paths:
                   data:
                     type: array
                     items:
-                      oneOf:
-                        - $ref: '#/components/schemas/AdminAsset'
-                        - $ref: '#/components/schemas/PublicAsset'
+                      $ref: '#/components/schemas/Asset'
                   cursor:
                     type: string
                     example: "Y29uZ3JhdHMsIHlvdSBmb3VuZCB0aGUgZWFzdGVyIGVnZw=="
@@ -215,9 +213,7 @@ paths:
                   - asset
                 properties:
                   asset:
-                    oneOf:
-                      - $ref: '#/components/schemas/AdminAsset'
-                      - $ref: '#/components/schemas/PublicAsset'
+                    $ref: '#/components/schemas/Asset'
         '400':
           description: Bad request.
           content:
@@ -353,6 +349,11 @@ components:
         - file
         - folder
       example: file
+
+    Asset:
+      oneOf:
+        - $ref: '#/components/schemas/AdminAsset'
+        - $ref: '#/components/schemas/PublicAsset'
 
     # Public schemas (minimal information for general users)
     PublicFile:
@@ -497,18 +498,6 @@ components:
         mapping:
           file: '#/components/schemas/AdminFile'
           folder: '#/components/schemas/AdminFolder'
-
-    # Legacy schema for backwards compatibility (deprecated)
-    Asset:
-      oneOf:
-        - $ref: '#/components/schemas/AdminFile'
-        - $ref: '#/components/schemas/AdminFolder'
-      discriminator:
-        propertyName: type
-        mapping:
-          file: '#/components/schemas/AdminFile'
-          folder: '#/components/schemas/AdminFolder'
-      deprecated: true
 
     FileStatus:
       type: string
