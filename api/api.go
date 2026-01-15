@@ -435,6 +435,7 @@ func fileToAdminAPI(file *assets.File, cdnBaseURL string) (AdminFile, error) {
 		Status:      FileStatus(file.Status),
 		CreatedAt:   &createdAt,
 		CreatedBy:   &file.CreatedBy,
+		Version:     &file.Version,
 	}, nil
 }
 
@@ -451,6 +452,7 @@ func folderToAdminAPI(folder *assets.Folder) AdminFolder {
 		ContentCount: folder.ContentCount,
 		CreatedAt:    &createdAt,
 		CreatedBy:    &folder.CreatedBy,
+		Version:      &folder.Version,
 	}
 }
 

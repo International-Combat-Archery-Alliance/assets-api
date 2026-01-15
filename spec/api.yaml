@@ -456,6 +456,7 @@ components:
             - status
             - createdAt
             - createdBy
+            - version
           properties:
             id:
               type: string
@@ -474,6 +475,10 @@ components:
               readOnly: true
               description: Email of the admin who uploaded the file
               example: admin@icaa.world
+            version:
+              type: integer
+              readOnly: true
+              example: 5
 
     AdminFolder:
       allOf:
@@ -483,6 +488,7 @@ components:
             - id
             - createdAt
             - createdBy
+            - version
           properties:
             id:
               type: string
@@ -499,6 +505,10 @@ components:
               readOnly: true
               description: Email of the admin who created the folder
               example: admin@icaa.world
+            version:
+              type: integer
+              readOnly: true
+              example: 5
 
     AdminAsset:
       oneOf:
