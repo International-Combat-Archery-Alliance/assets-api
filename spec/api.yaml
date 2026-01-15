@@ -21,7 +21,10 @@ paths:
         **Authentication:**
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
-      security: []
+      security:
+        - googleCookieAuth: []
+        - googleBearerAuth: []
+        - {} # Allow unauthenticated users
       parameters:
         - name: path
           in: query
@@ -56,12 +59,17 @@ paths:
                 type: object
                 required:
                   - data
+                  - contentCount
                   - hasNextPage
                 properties:
                   data:
                     type: array
                     items:
                       $ref: '#/components/schemas/Asset'
+                  contentCount:
+                    type: integer
+                    description: Total number of items in the folder
+                    example: 10
                   cursor:
                     type: string
                     example: "Y29uZ3JhdHMsIHlvdSBmb3VuZCB0aGUgZWFzdGVyIGVnZw=="
@@ -193,7 +201,10 @@ paths:
         **Authentication:**
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
-      security: []
+      security:
+        - googleCookieAuth: []
+        - googleBearerAuth: []
+        - {} # Allow unauthenticated users
       parameters:
         - name: path
           in: query

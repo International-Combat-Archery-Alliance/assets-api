@@ -155,9 +155,10 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 	}
 
 	return GetAssetsV1200JSONResponse{
-		Data:        assets,
-		Cursor:      result.Cursor,
-		HasNextPage: result.HasNextPage,
+		Data:         assets,
+		Cursor:       result.Cursor,
+		ContentCount: result.ContentCount,
+		HasNextPage:  result.HasNextPage,
 	}, nil
 }
 
