@@ -194,8 +194,9 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 				CreatedBy:    "user@example.com",
 			},
 		},
-		Cursor:      nil,
-		HasNextPage: false,
+		Cursor:       nil,
+		ContentCount: 2,
+		HasNextPage:  false,
 	}
 
 	storageRepo := &mockStorageRepository{}
@@ -240,6 +241,10 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 
 	if successResponse.HasNextPage {
 		t.Error("HasNextPage should be false")
+	}
+
+	if successResponse.ContentCount != 2 {
+		t.Errorf("contentCount = %d, want 2", successResponse.ContentCount)
 	}
 }
 

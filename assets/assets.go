@@ -97,9 +97,10 @@ func (f *Folder) IsEmpty() bool {
 }
 
 type GetAssetsResponse struct {
-	Data        []Asset
-	Cursor      *string
-	HasNextPage bool
+	Data         []Asset
+	Cursor       *string
+	ContentCount int
+	HasNextPage  bool
 }
 
 type MetadataRepository interface {

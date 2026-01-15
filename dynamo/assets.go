@@ -183,8 +183,21 @@ func (d *DB) GetAssets(ctx context.Context, path string, limit int32, cursor *st
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
+	folder, err := d.GetAsset(ctx, path)
+	if err != nil {
+		return assets.GetAssetsResponse{}, err
+	}
+
+	if folder.Type() != assets.AssetTypeFolder {
+		return assets.GetAssetsResponse{
+			Data:         []assets.Asset{},
+			ContentCount: 0,
+			Cursor:       nil,
+			HasNextPage:  false,
+		}, nil
+	}
+
 	var startKey map[string]types.AttributeValue
-	var err error
 	if cursor != nil {
 		startKey, err = cursorToLastEval(*cursor)
 		if err != nil {
@@ -236,9 +249,10 @@ func (d *DB) GetAssets(ctx context.Context, path string, limit int32, cursor *st
 	}
 
 	return assets.GetAssetsResponse{
-		Data:        data,
-		Cursor:      newCursor,
-		HasNextPage: hasNextPage,
+		Data:         data,
+		Cursor:       newCursor,
+		ContentCount: folder.AsFolder().ContentCount,
+		HasNextPage:  hasNextPage,
 	}, nil
 }
 
