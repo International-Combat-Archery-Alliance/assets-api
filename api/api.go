@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/auth"
@@ -228,7 +229,6 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 		request.Body.ContentType,
 		userEmail,
 	)
-
 	if err != nil {
 		if assets.IsParentFolderNotFoundError(err) {
 			return PostAssetsV1UploadUrl404JSONResponse{
@@ -241,6 +241,11 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 			Code:    InternalError,
 			Message: "Failed to create file record",
 		}, nil
+	}
+
+	// This is mega hacky and fragile, but this makes the upload url better when running locally
+	if a.env == LOCAL {
+		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "localstack:4566", "localhost:4566", 1)
 	}
 
 	return PostAssetsV1UploadUrl200JSONResponse{
@@ -430,6 +435,7 @@ func fileToAdminAPI(file *assets.File, cdnBaseURL string) (AdminFile, error) {
 		Status:      FileStatus(file.Status),
 		CreatedAt:   &createdAt,
 		CreatedBy:   &file.CreatedBy,
+		Version:     &file.Version,
 	}, nil
 }
 
@@ -446,6 +452,7 @@ func folderToAdminAPI(folder *assets.Folder) AdminFolder {
 		ContentCount: folder.ContentCount,
 		CreatedAt:    &createdAt,
 		CreatedBy:    &folder.CreatedBy,
+		Version:      &folder.Version,
 	}
 }
 
