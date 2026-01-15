@@ -51,6 +51,7 @@ func (am *AssetsManager) CreateFolder(
 		ContentCount: 0,
 		CreatedAt:    now,
 		CreatedBy:    createdBy,
+		Version:      1,
 	}
 
 	err := am.metadataRepo.CreateAsset(ctx, folder)
@@ -89,6 +90,7 @@ func (am *AssetsManager) CreateFileUpload(
 		CreatedAt:   now,
 		CreatedBy:   createdBy,
 		ExpiresAt:   &result.ExpiresAt,
+		Version:     1,
 	}
 	err = am.metadataRepo.CreateAsset(ctx, file)
 	if err != nil {
