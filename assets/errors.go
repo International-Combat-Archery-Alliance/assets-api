@@ -23,6 +23,7 @@ const (
 	ErrorCodeNotAFile               ErrorCode = "NotAFile"
 	ErrorCodeVersionConflict        ErrorCode = "VersionConflict"
 	ErrorCodeNotAllowedToDeleteRoot ErrorCode = "NotAllowedToDeleteRoot"
+	ErrorCodeFileNotConfirmed       ErrorCode = "FileNotConfirmed"
 )
 
 // AssetError represents an error in asset operations
@@ -255,6 +256,21 @@ func IsVersionConflictError(err error) bool {
 	var assetErr *AssetError
 	if errors.As(err, &assetErr) {
 		return assetErr.Code == ErrorCodeVersionConflict
+	}
+	return false
+}
+
+func NewFileNotConfirmedError(message string) *AssetError {
+	return &AssetError{
+		Code:    ErrorCodeFileNotConfirmed,
+		Message: message,
+	}
+}
+
+func IsFileNotConfirmedError(err error) bool {
+	var assetErr *AssetError
+	if errors.As(err, &assetErr) {
+		return assetErr.Code == ErrorCodeFileNotConfirmed
 	}
 	return false
 }

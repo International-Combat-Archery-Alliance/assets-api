@@ -42,6 +42,7 @@ const (
 	AssetNotUploaded     ErrorCode = "AssetNotUploaded"
 	AuthError            ErrorCode = "AuthError"
 	EmptyBody            ErrorCode = "EmptyBody"
+	FileNotConfirmed     ErrorCode = "FileNotConfirmed"
 	FileTooLarge         ErrorCode = "FileTooLarge"
 	FolderNotEmpty       ErrorCode = "FolderNotEmpty"
 	InputValidationError ErrorCode = "InputValidationError"
@@ -231,6 +232,12 @@ type GetAssetsV1ByPathParams struct {
 // PostAssetsV1ByPathConfirmParams defines parameters for PostAssetsV1ByPathConfirm.
 type PostAssetsV1ByPathConfirmParams struct {
 	// Path Full path to the file (e.g., "/foo/bar.txt")
+	Path string `form:"path" json:"path"`
+}
+
+// PostAssetsV1ByPathReplaceUrlParams defines parameters for PostAssetsV1ByPathReplaceUrl.
+type PostAssetsV1ByPathReplaceUrlParams struct {
+	// Path Full path to the file to replace (e.g., "/foo/bar.txt")
 	Path string `form:"path" json:"path"`
 }
 
@@ -494,6 +501,9 @@ type ServerInterface interface {
 	// Confirm file upload
 	// (POST /assets/v1/by-path/confirm)
 	PostAssetsV1ByPathConfirm(w http.ResponseWriter, r *http.Request, params PostAssetsV1ByPathConfirmParams)
+	// Get a presigned URL to replace a file's contents
+	// (POST /assets/v1/by-path/replace-url)
+	PostAssetsV1ByPathReplaceUrl(w http.ResponseWriter, r *http.Request, params PostAssetsV1ByPathReplaceUrlParams)
 	// Create a folder
 	// (POST /assets/v1/folders)
 	PostAssetsV1Folders(w http.ResponseWriter, r *http.Request)
@@ -695,6 +705,48 @@ func (siw *ServerInterfaceWrapper) PostAssetsV1ByPathConfirm(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// PostAssetsV1ByPathReplaceUrl operation middleware
+func (siw *ServerInterfaceWrapper) PostAssetsV1ByPathReplaceUrl(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, GoogleCookieAuthScopes, []string{"admin"})
+
+	ctx = context.WithValue(ctx, GoogleBearerAuthScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PostAssetsV1ByPathReplaceUrlParams
+
+	// ------------- Required query parameter "path" -------------
+
+	if paramValue := r.URL.Query().Get("path"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "path", r.URL.Query(), &params.Path)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostAssetsV1ByPathReplaceUrl(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PostAssetsV1Folders operation middleware
 func (siw *ServerInterfaceWrapper) PostAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
 
@@ -863,6 +915,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("DELETE "+options.BaseURL+"/assets/v1/by-path", wrapper.DeleteAssetsV1ByPath)
 	m.HandleFunc("GET "+options.BaseURL+"/assets/v1/by-path", wrapper.GetAssetsV1ByPath)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/by-path/confirm", wrapper.PostAssetsV1ByPathConfirm)
+	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/by-path/replace-url", wrapper.PostAssetsV1ByPathReplaceUrl)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/folders", wrapper.PostAssetsV1Folders)
 	m.HandleFunc("POST "+options.BaseURL+"/assets/v1/upload-url", wrapper.PostAssetsV1UploadUrl)
 
@@ -1072,6 +1125,59 @@ func (response PostAssetsV1ByPathConfirm500JSONResponse) VisitPostAssetsV1ByPath
 	return json.NewEncoder(w).Encode(response)
 }
 
+type PostAssetsV1ByPathReplaceUrlRequestObject struct {
+	Params PostAssetsV1ByPathReplaceUrlParams
+}
+
+type PostAssetsV1ByPathReplaceUrlResponseObject interface {
+	VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error
+}
+
+type PostAssetsV1ByPathReplaceUrl200JSONResponse UploadResponse
+
+func (response PostAssetsV1ByPathReplaceUrl200JSONResponse) VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathReplaceUrl400JSONResponse Error
+
+func (response PostAssetsV1ByPathReplaceUrl400JSONResponse) VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathReplaceUrl401JSONResponse Error
+
+func (response PostAssetsV1ByPathReplaceUrl401JSONResponse) VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathReplaceUrl404JSONResponse Error
+
+func (response PostAssetsV1ByPathReplaceUrl404JSONResponse) VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PostAssetsV1ByPathReplaceUrl500JSONResponse Error
+
+func (response PostAssetsV1ByPathReplaceUrl500JSONResponse) VisitPostAssetsV1ByPathReplaceUrlResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type PostAssetsV1FoldersRequestObject struct {
 	Body *PostAssetsV1FoldersJSONRequestBody
 }
@@ -1203,6 +1309,9 @@ type StrictServerInterface interface {
 	// Confirm file upload
 	// (POST /assets/v1/by-path/confirm)
 	PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV1ByPathConfirmRequestObject) (PostAssetsV1ByPathConfirmResponseObject, error)
+	// Get a presigned URL to replace a file's contents
+	// (POST /assets/v1/by-path/replace-url)
+	PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAssetsV1ByPathReplaceUrlRequestObject) (PostAssetsV1ByPathReplaceUrlResponseObject, error)
 	// Create a folder
 	// (POST /assets/v1/folders)
 	PostAssetsV1Folders(ctx context.Context, request PostAssetsV1FoldersRequestObject) (PostAssetsV1FoldersResponseObject, error)
@@ -1344,6 +1453,32 @@ func (sh *strictHandler) PostAssetsV1ByPathConfirm(w http.ResponseWriter, r *htt
 	}
 }
 
+// PostAssetsV1ByPathReplaceUrl operation middleware
+func (sh *strictHandler) PostAssetsV1ByPathReplaceUrl(w http.ResponseWriter, r *http.Request, params PostAssetsV1ByPathReplaceUrlParams) {
+	var request PostAssetsV1ByPathReplaceUrlRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PostAssetsV1ByPathReplaceUrl(ctx, request.(PostAssetsV1ByPathReplaceUrlRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PostAssetsV1ByPathReplaceUrl")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PostAssetsV1ByPathReplaceUrlResponseObject); ok {
+		if err := validResponse.VisitPostAssetsV1ByPathReplaceUrlResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // PostAssetsV1Folders operation middleware
 func (sh *strictHandler) PostAssetsV1Folders(w http.ResponseWriter, r *http.Request) {
 	var request PostAssetsV1FoldersRequestObject
@@ -1409,59 +1544,60 @@ func (sh *strictHandler) PostAssetsV1UploadUrl(w http.ResponseWriter, r *http.Re
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"OAAA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

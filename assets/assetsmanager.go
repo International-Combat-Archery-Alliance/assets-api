@@ -114,11 +114,6 @@ func (am *AssetsManager) ConfirmFileUpload(
 		return nil, NewNotAFileError(fmt.Sprintf("%q is not a file", fullPath))
 	}
 
-	// If already confirmed, do nothing
-	if file.Status == StatusConfirmed {
-		return file, nil
-	}
-
 	headResult, err := am.storageRepo.HeadObject(ctx, file.ObjectKey)
 	if err != nil {
 		return nil, NewFailedToFetchError(fmt.Sprintf("%q failed to fetch from storage", fullPath), err)
@@ -126,6 +121,11 @@ func (am *AssetsManager) ConfirmFileUpload(
 
 	if !headResult.Exists {
 		return nil, NewAssetNotUploadedError(fmt.Sprintf("%q does not exist in storage", fullPath))
+	}
+
+	// Check if anything changed - if already confirmed with same size, no update needed
+	if file.Status == StatusConfirmed && file.Size == headResult.Size {
+		return file, nil
 	}
 
 	file.ExpiresAt = nil
@@ -139,6 +139,34 @@ func (am *AssetsManager) ConfirmFileUpload(
 	}
 
 	return file, nil
+}
+
+func (am *AssetsManager) CreateReplaceUpload(
+	ctx context.Context,
+	fullPath string,
+) (*PresignedUploadResult, *File, error) {
+	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if asset.Type() != AssetTypeFile {
+		return nil, nil, NewNotAFileError(fmt.Sprintf("%q is not a file", fullPath))
+	}
+
+	file := asset.AsFile()
+
+	if file.Status != StatusConfirmed {
+		return nil, nil, NewFileNotConfirmedError(fmt.Sprintf("%q is not confirmed, cannot replace", fullPath))
+	}
+
+	// Generate presigned URL for the existing object key (overwrites the file)
+	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, file.ID, file.Name, file.ContentType, uploadTTL, maxUploadSize)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &result, &file, nil
 }
 
 func (am *AssetsManager) DeleteAsset(ctx context.Context, fullPath string) error {
