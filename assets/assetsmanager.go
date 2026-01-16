@@ -150,10 +150,11 @@ func (am *AssetsManager) CreateReplaceUpload(
 		return nil, nil, err
 	}
 
-	file, ok := asset.(*File)
-	if !ok {
+	if asset.Type() != AssetTypeFile {
 		return nil, nil, NewNotAFileError(fmt.Sprintf("%q is not a file", fullPath))
 	}
+
+	file := asset.AsFile()
 
 	if file.Status != StatusConfirmed {
 		return nil, nil, NewFileNotConfirmedError(fmt.Sprintf("%q is not confirmed, cannot replace", fullPath))
@@ -165,7 +166,7 @@ func (am *AssetsManager) CreateReplaceUpload(
 		return nil, nil, err
 	}
 
-	return &result, file, nil
+	return &result, &file, nil
 }
 
 func (am *AssetsManager) DeleteAsset(ctx context.Context, fullPath string) error {
