@@ -7,5 +7,7 @@ s3_prefix = "assets-api"
 region = "us-east-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-# NOTE: Update this after first deploy with the correct ECR repository
-# image_repositories = ["ICAAAssets=ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/assets-api/icaaassets"]
+image_repositories = ["ICAAAssets=197461532156.dkr.ecr.us-east-1.amazonaws.com/assetsapiab9b273c/icaaassets7139eb54repo"]
+
+[default.global.parameters]
+region = "us-east-1"
