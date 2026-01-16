@@ -343,6 +343,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /assets/v1/by-path/replace-url:
+    post:
+      summary: Get a presigned URL to replace a file's contents
+      description: Returns a presigned URL for uploading new content to replace an existing file. Admin only. The file must exist and be in confirmed status.
+      security:
+        - googleCookieAuth: [admin]
+        - googleBearerAuth: [admin]
+      parameters:
+        - name: path
+          in: query
+          description: Full path to the file to replace (e.g., "/foo/bar.txt")
+          required: true
+          schema:
+            type: string
+            example: /images/hero.png
+      responses:
+        '200':
+          description: Presigned upload URL for replacement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: Bad request (e.g., asset is not a file, or file is not confirmed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Unknown server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     googleCookieAuth:
@@ -627,6 +674,7 @@ components:
         - ParentFolderNotFound
         - NotAFile
         - VersionConflict
+        - FileNotConfirmed
     Error:
       type: object
       required:

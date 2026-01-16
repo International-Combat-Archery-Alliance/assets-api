@@ -318,6 +318,50 @@ func (a *API) DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1By
 	return DeleteAssetsV1ByPath204Response{}, nil
 }
 
+// PostAssetsV1ByPathReplaceUrl generates a presigned URL to replace a file's contents
+func (a *API) PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAssetsV1ByPathReplaceUrlRequestObject) (PostAssetsV1ByPathReplaceUrlResponseObject, error) {
+	logger := a.getLoggerOrBaseLogger(ctx)
+
+	presignResult, file, err := a.assetManager.CreateReplaceUpload(ctx, request.Params.Path)
+	if err != nil {
+		if assets.IsNotFoundError(err) {
+			return PostAssetsV1ByPathReplaceUrl404JSONResponse{
+				Code:    NotFound,
+				Message: fmt.Sprintf("File at path %q not found", request.Params.Path),
+			}, nil
+		}
+		if assets.IsNotAFileError(err) {
+			return PostAssetsV1ByPathReplaceUrl400JSONResponse{
+				Code:    NotAFile,
+				Message: "Asset is not a file",
+			}, nil
+		}
+		if assets.IsFileNotConfirmedError(err) {
+			return PostAssetsV1ByPathReplaceUrl400JSONResponse{
+				Code:    FileNotConfirmed,
+				Message: "File is not confirmed, cannot replace",
+			}, nil
+		}
+		logger.Error("failed to create replace upload", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
+		return PostAssetsV1ByPathReplaceUrl500JSONResponse{
+			Code:    InternalError,
+			Message: "Failed to create replace upload",
+		}, nil
+	}
+
+	// This is mega hacky and fragile, but this makes the upload url better when running locally
+	if a.env == LOCAL {
+		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "localstack:4566", "localhost:4566", 1)
+	}
+
+	return PostAssetsV1ByPathReplaceUrl200JSONResponse{
+		FileId:     file.ID,
+		UploadUrl:  presignResult.UploadURL,
+		FormFields: presignResult.FormFields,
+		ExpiresAt:  presignResult.ExpiresAt,
+	}, nil
+}
+
 // PostAssetsV1ByPathConfirm confirms a file upload
 func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV1ByPathConfirmRequestObject) (PostAssetsV1ByPathConfirmResponseObject, error) {
 	logger := a.getLoggerOrBaseLogger(ctx)

@@ -1239,3 +1239,258 @@ func TestAPI_DeleteAssetsV1ByPath_InternalError(t *testing.T) {
 		t.Errorf("error code = %v, want %v", errorResponse.Code, InternalError)
 	}
 }
+
+func TestAPI_PostAssetsV1ByPathReplaceUrl_Success(t *testing.T) {
+	fileID := uuid.New()
+	uploadURL := "https://s3.example.com/upload"
+	formFields := map[string]string{"key": "value"}
+	expiresAt := time.Now().Add(time.Hour)
+
+	storageRepo := &mockStorageRepository{
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+			if assetID != fileID {
+				t.Errorf("GeneratePresignedUploadURL called with assetID %v, want %v", assetID, fileID)
+			}
+			return assets.PresignedUploadResult{
+				UploadURL:  uploadURL,
+				FormFields: formFields,
+				ExpiresAt:  expiresAt,
+			}, nil
+		},
+	}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			if fullPath != "/test.txt" {
+				t.Errorf("GetAsset called with path %q, want %q", fullPath, "/test.txt")
+			}
+			return &assets.File{
+				ID:          fileID,
+				Name:        "test.txt",
+				Path:        "/",
+				ContentType: "text/plain",
+				Size:        1024,
+				ObjectKey:   fileID.String(),
+				Status:      assets.StatusConfirmed,
+				CreatedAt:   time.Now().UTC(),
+				CreatedBy:   "admin@example.com",
+			}, nil
+		},
+	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
+
+	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
+		email:   "admin@example.com",
+		isAdmin: true,
+	})
+
+	request := PostAssetsV1ByPathReplaceUrlRequestObject{
+		Params: PostAssetsV1ByPathReplaceUrlParams{
+			Path: "/test.txt",
+		},
+	}
+
+	response, err := api.PostAssetsV1ByPathReplaceUrl(ctx, request)
+	if err != nil {
+		t.Fatalf("PostAssetsV1ByPathReplaceUrl() error = %v", err)
+	}
+
+	successResponse, ok := response.(PostAssetsV1ByPathReplaceUrl200JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want PostAssetsV1ByPathReplaceUrl200JSONResponse", response)
+	}
+
+	if successResponse.FileId != fileID {
+		t.Errorf("file ID = %v, want %v", successResponse.FileId, fileID)
+	}
+	if successResponse.UploadUrl != uploadURL {
+		t.Errorf("upload URL = %q, want %q", successResponse.UploadUrl, uploadURL)
+	}
+	if successResponse.ExpiresAt != expiresAt {
+		t.Errorf("expires at = %v, want %v", successResponse.ExpiresAt, expiresAt)
+	}
+}
+
+func TestAPI_PostAssetsV1ByPathReplaceUrl_NotFound(t *testing.T) {
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			return nil, assets.NewNotFoundError("not found", nil)
+		},
+	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
+
+	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
+		email:   "admin@example.com",
+		isAdmin: true,
+	})
+
+	request := PostAssetsV1ByPathReplaceUrlRequestObject{
+		Params: PostAssetsV1ByPathReplaceUrlParams{
+			Path: "/nonexistent.txt",
+		},
+	}
+
+	response, err := api.PostAssetsV1ByPathReplaceUrl(ctx, request)
+	if err != nil {
+		t.Fatalf("PostAssetsV1ByPathReplaceUrl() error = %v", err)
+	}
+
+	errorResponse, ok := response.(PostAssetsV1ByPathReplaceUrl404JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want PostAssetsV1ByPathReplaceUrl404JSONResponse", response)
+	}
+
+	if errorResponse.Code != NotFound {
+		t.Errorf("error code = %v, want %v", errorResponse.Code, NotFound)
+	}
+}
+
+func TestAPI_PostAssetsV1ByPathReplaceUrl_NotAFile(t *testing.T) {
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			return &assets.Folder{
+				ID:   uuid.New(),
+				Name: "folder",
+				Path: "/",
+			}, nil
+		},
+	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
+
+	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
+		email:   "admin@example.com",
+		isAdmin: true,
+	})
+
+	request := PostAssetsV1ByPathReplaceUrlRequestObject{
+		Params: PostAssetsV1ByPathReplaceUrlParams{
+			Path: "/folder",
+		},
+	}
+
+	response, err := api.PostAssetsV1ByPathReplaceUrl(ctx, request)
+	if err != nil {
+		t.Fatalf("PostAssetsV1ByPathReplaceUrl() error = %v", err)
+	}
+
+	errorResponse, ok := response.(PostAssetsV1ByPathReplaceUrl400JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want PostAssetsV1ByPathReplaceUrl400JSONResponse", response)
+	}
+
+	if errorResponse.Code != NotAFile {
+		t.Errorf("error code = %v, want %v", errorResponse.Code, NotAFile)
+	}
+}
+
+func TestAPI_PostAssetsV1ByPathReplaceUrl_FileNotConfirmed(t *testing.T) {
+	fileID := uuid.New()
+	storageRepo := &mockStorageRepository{}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			return &assets.File{
+				ID:          fileID,
+				Name:        "test.txt",
+				Path:        "/",
+				ContentType: "text/plain",
+				Size:        0,
+				ObjectKey:   fileID.String(),
+				Status:      assets.StatusPending,
+				CreatedAt:   time.Now().UTC(),
+				CreatedBy:   "admin@example.com",
+			}, nil
+		},
+	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
+
+	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
+		email:   "admin@example.com",
+		isAdmin: true,
+	})
+
+	request := PostAssetsV1ByPathReplaceUrlRequestObject{
+		Params: PostAssetsV1ByPathReplaceUrlParams{
+			Path: "/test.txt",
+		},
+	}
+
+	response, err := api.PostAssetsV1ByPathReplaceUrl(ctx, request)
+	if err != nil {
+		t.Fatalf("PostAssetsV1ByPathReplaceUrl() error = %v", err)
+	}
+
+	errorResponse, ok := response.(PostAssetsV1ByPathReplaceUrl400JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want PostAssetsV1ByPathReplaceUrl400JSONResponse", response)
+	}
+
+	if errorResponse.Code != FileNotConfirmed {
+		t.Errorf("error code = %v, want %v", errorResponse.Code, FileNotConfirmed)
+	}
+}
+
+func TestAPI_PostAssetsV1ByPathReplaceUrl_InternalError(t *testing.T) {
+	fileID := uuid.New()
+	storageRepo := &mockStorageRepository{
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (assets.PresignedUploadResult, error) {
+			return assets.PresignedUploadResult{}, fmt.Errorf("storage error")
+		},
+	}
+	metadataRepo := &mockMetadataRepository{
+		getAssetFunc: func(ctx context.Context, fullPath string) (assets.Asset, error) {
+			return &assets.File{
+				ID:          fileID,
+				Name:        "test.txt",
+				Path:        "/",
+				ContentType: "text/plain",
+				Size:        1024,
+				ObjectKey:   fileID.String(),
+				Status:      assets.StatusConfirmed,
+				CreatedAt:   time.Now().UTC(),
+				CreatedBy:   "admin@example.com",
+			}, nil
+		},
+	}
+	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", &mockAuthValidator{})
+
+	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
+		email:   "admin@example.com",
+		isAdmin: true,
+	})
+
+	request := PostAssetsV1ByPathReplaceUrlRequestObject{
+		Params: PostAssetsV1ByPathReplaceUrlParams{
+			Path: "/test.txt",
+		},
+	}
+
+	response, err := api.PostAssetsV1ByPathReplaceUrl(ctx, request)
+	if err != nil {
+		t.Fatalf("PostAssetsV1ByPathReplaceUrl() error = %v", err)
+	}
+
+	errorResponse, ok := response.(PostAssetsV1ByPathReplaceUrl500JSONResponse)
+	if !ok {
+		t.Fatalf("response type = %T, want PostAssetsV1ByPathReplaceUrl500JSONResponse", response)
+	}
+
+	if errorResponse.Code != InternalError {
+		t.Errorf("error code = %v, want %v", errorResponse.Code, InternalError)
+	}
+}

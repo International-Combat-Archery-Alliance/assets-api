@@ -358,7 +358,13 @@ func TestAssetsManager_ConfirmFileUpload_AlreadyConfirmed(t *testing.T) {
 		},
 	}
 
-	am := NewAssetsManager(&mockStorageRepo{}, metadataRepo)
+	storageRepo := &mockStorageRepo{
+		headObjectFunc: func(ctx context.Context, objectKey string) (HeadObjectResult, error) {
+			return HeadObjectResult{Exists: true, Size: 1024}, nil
+		},
+	}
+
+	am := NewAssetsManager(storageRepo, metadataRepo)
 	ctx := context.Background()
 
 	confirmedFile, err := am.ConfirmFileUpload(ctx, "/test.txt")
@@ -545,5 +551,162 @@ func TestAssetsManager_DeleteAsset_StorageError(t *testing.T) {
 	err := am.DeleteAsset(ctx, "/test.txt")
 	if err == nil {
 		t.Fatal("DeleteAsset() expected error, got nil")
+	}
+}
+
+func TestAssetsManager_CreateReplaceUpload_Success(t *testing.T) {
+	fileID := uuid.New()
+	file := &File{
+		ID:          fileID,
+		Name:        "test.txt",
+		Path:        "/",
+		Status:      StatusConfirmed,
+		ContentType: "text/plain",
+		ObjectKey:   fileID.String(),
+	}
+
+	expectedUploadURL := "https://s3.amazonaws.com/bucket"
+
+	metadataRepo := &mockMetadataRepo{
+		getAssetFunc: func(ctx context.Context, fullPath string) (Asset, error) {
+			if fullPath != "/test.txt" {
+				t.Errorf("GetAsset called with path %q, want %q", fullPath, "/test.txt")
+			}
+			return file, nil
+		},
+	}
+
+	storageRepo := &mockStorageRepo{
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
+			if assetID != fileID {
+				t.Errorf("GeneratePresignedUploadURL called with assetID %v, want %v", assetID, fileID)
+			}
+			if filename != "test.txt" {
+				t.Errorf("GeneratePresignedUploadURL called with filename %q, want %q", filename, "test.txt")
+			}
+			if contentType != "text/plain" {
+				t.Errorf("GeneratePresignedUploadURL called with contentType %q, want %q", contentType, "text/plain")
+			}
+			return PresignedUploadResult{
+				UploadURL:  expectedUploadURL,
+				FormFields: map[string]string{"key": "value"},
+				ExpiresAt:  time.Now().Add(ttl),
+			}, nil
+		},
+	}
+
+	am := NewAssetsManager(storageRepo, metadataRepo)
+	ctx := context.Background()
+
+	presignResult, returnedFile, err := am.CreateReplaceUpload(ctx, "/test.txt")
+	if err != nil {
+		t.Fatalf("CreateReplaceUpload() error = %v", err)
+	}
+
+	if presignResult.UploadURL != expectedUploadURL {
+		t.Errorf("CreateReplaceUpload() uploadURL = %q, want %q", presignResult.UploadURL, expectedUploadURL)
+	}
+	if returnedFile.ID != fileID {
+		t.Errorf("CreateReplaceUpload() file ID = %v, want %v", returnedFile.ID, fileID)
+	}
+}
+
+func TestAssetsManager_CreateReplaceUpload_NotFound(t *testing.T) {
+	metadataRepo := &mockMetadataRepo{
+		getAssetFunc: func(ctx context.Context, fullPath string) (Asset, error) {
+			return nil, NewNotFoundError("not found", nil)
+		},
+	}
+
+	am := NewAssetsManager(&mockStorageRepo{}, metadataRepo)
+	ctx := context.Background()
+
+	_, _, err := am.CreateReplaceUpload(ctx, "/test.txt")
+	if err == nil {
+		t.Fatal("CreateReplaceUpload() expected error, got nil")
+	}
+	if !IsNotFoundError(err) {
+		t.Errorf("CreateReplaceUpload() error type = %T, want NotFoundError", err)
+	}
+}
+
+func TestAssetsManager_CreateReplaceUpload_NotAFile(t *testing.T) {
+	folder := &Folder{
+		ID:   uuid.New(),
+		Name: "test-folder",
+		Path: "/",
+	}
+
+	metadataRepo := &mockMetadataRepo{
+		getAssetFunc: func(ctx context.Context, fullPath string) (Asset, error) {
+			return folder, nil
+		},
+	}
+
+	am := NewAssetsManager(&mockStorageRepo{}, metadataRepo)
+	ctx := context.Background()
+
+	_, _, err := am.CreateReplaceUpload(ctx, "/test-folder")
+	if err == nil {
+		t.Fatal("CreateReplaceUpload() expected error, got nil")
+	}
+	if !IsNotAFileError(err) {
+		t.Errorf("CreateReplaceUpload() error type = %T, want NotAFileError", err)
+	}
+}
+
+func TestAssetsManager_CreateReplaceUpload_FileNotConfirmed(t *testing.T) {
+	file := &File{
+		ID:     uuid.New(),
+		Name:   "test.txt",
+		Path:   "/",
+		Status: StatusPending,
+	}
+
+	metadataRepo := &mockMetadataRepo{
+		getAssetFunc: func(ctx context.Context, fullPath string) (Asset, error) {
+			return file, nil
+		},
+	}
+
+	am := NewAssetsManager(&mockStorageRepo{}, metadataRepo)
+	ctx := context.Background()
+
+	_, _, err := am.CreateReplaceUpload(ctx, "/test.txt")
+	if err == nil {
+		t.Fatal("CreateReplaceUpload() expected error, got nil")
+	}
+	if !IsFileNotConfirmedError(err) {
+		t.Errorf("CreateReplaceUpload() error type = %T, want FileNotConfirmedError", err)
+	}
+}
+
+func TestAssetsManager_CreateReplaceUpload_StorageError(t *testing.T) {
+	file := &File{
+		ID:          uuid.New(),
+		Name:        "test.txt",
+		Path:        "/",
+		Status:      StatusConfirmed,
+		ContentType: "text/plain",
+	}
+
+	metadataRepo := &mockMetadataRepo{
+		getAssetFunc: func(ctx context.Context, fullPath string) (Asset, error) {
+			return file, nil
+		},
+	}
+
+	storageRepo := &mockStorageRepo{
+		generatePresignedUploadURLFunc: func(ctx context.Context, assetID uuid.UUID, filename string, contentType string, ttl time.Duration, maxFileSize int) (PresignedUploadResult, error) {
+			return PresignedUploadResult{}, fmt.Errorf("storage error")
+		},
+	}
+
+	am := NewAssetsManager(storageRepo, metadataRepo)
+	ctx := context.Background()
+
+	_, _, err := am.CreateReplaceUpload(ctx, "/test.txt")
+	if err == nil {
+		t.Fatal("CreateReplaceUpload() expected error, got nil")
 	}
 }
