@@ -11,17 +11,13 @@ Parameters:
     AllowedValues:
       - arm64
       - x86_64
-  AssetsCdnBaseUrl:
-    Description: Base URL for the assets CDN
-    Type: String
-    Default: https://assets.icaa.world
 
 Mappings:
   attributes:
     dynamo:
       tableName: assets-api
     s3:
-      bucketName: icaa-assets
+      bucketName: assets.icaa.world
 
 Globals:
   Function:
@@ -31,7 +27,7 @@ Globals:
       Variables:
         DYNAMO_TABLE_NAME: !FindInMap [attributes, dynamo, tableName]
         S3_BUCKET_NAME: !FindInMap [attributes, s3, bucketName]
-        ASSETS_CDN_BASE_URL: !Ref AssetsCdnBaseUrl
+        ASSETS_CDN_BASE_URL: https://assets.icaa.world
 
 Resources:
   AssetsHttpApi:
@@ -113,7 +109,6 @@ Resources:
             AllowedOrigins:
               - "https://icaa.world"
               - "https://*.icaa.world"
-              - "http://localhost:*"
             MaxAge: 3600
 
   AssetsBucketPolicy:
