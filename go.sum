@@ -4,8 +4,8 @@ github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6 h1:He8af
 github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6/go.mod h1:8o94RPi1/7XTJvwPpRSzSUedZrtlirdB3r9Z20bi2f8=
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c h1:udKWzYgxTojEKWjV8V+WSxDXJ4NFATAsZjh8iIbsQIg=
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
-github.com/International-Combat-Archery-Alliance/auth v0.3.0 h1:0UK/3Zont90fdyYaSEmzeh1MR4uypLzs+qMPoF9FiWQ=
-github.com/International-Combat-Archery-Alliance/auth v0.3.0/go.mod h1:5bQS/2zDLOw+xKeCBGa9VIt6FOgqNHe76s216dtfK/E=
+github.com/International-Combat-Archery-Alliance/auth v0.3.1 h1:J3/8Z4wtOm2ORi0fSqBqAzM59LNpg0yegDix4fK481w=
+github.com/International-Combat-Archery-Alliance/auth v0.3.1/go.mod h1:5bQS/2zDLOw+xKeCBGa9VIt6FOgqNHe76s216dtfK/E=
 github.com/International-Combat-Archery-Alliance/middleware v0.2.1 h1:Ghgu/ur9yp5C2KBlpXIGtqdNliszJPrCvaVZNamfB5k=
 github.com/International-Combat-Archery-Alliance/middleware v0.2.1/go.mod h1:/QPRfURS8dXuCZ3n9yph3ZTdrxOaz6fehAP2u1GaQmM=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
