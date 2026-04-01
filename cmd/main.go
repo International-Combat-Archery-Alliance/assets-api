@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,12 +14,13 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/assets-api/dynamo"
 	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
-	"github.com/International-Combat-Archery-Alliance/auth/google"
+	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
 func main() {
@@ -46,16 +49,22 @@ func main() {
 
 	assetsManager := assets.NewAssetsManager(storage, db)
 
-	googleAuthValidator, err := google.NewValidator(ctx)
+	env := getApiEnvironment()
+
+	signingKeys, currentKeyID, err := getJWTSigningKeys(ctx, env)
 	if err != nil {
-		logger.Error("failed to create google auth validator", slog.String("error", err.Error()))
+		logger.Error("failed to get JWT signing keys", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
-	env := getApiEnvironment()
+	tokenService := token.NewTokenService(
+		signingKeys[currentKeyID],
+		token.WithSigningKeys(signingKeys, currentKeyID),
+	)
+
 	cdnBaseURL := getEnvOrDefault("ASSETS_CDN_BASE_URL", "https://assets.icaa.world")
 
-	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, googleAuthValidator)
+	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService)
 
 	serverSettings := getServerSettingsFromEnv()
 	err = assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)
@@ -183,4 +192,67 @@ func createProdS3Client(ctx context.Context) (*s3.Client, error) {
 		return nil, err
 	}
 	return s3.NewFromConfig(cfg), nil
+}
+
+// jwtSigningKeysData represents the JSON structure for signing keys
+type jwtSigningKeysData struct {
+	CurrentKey string            `json:"currentKey"`
+	Keys       map[string]string `json:"keys"`
+}
+
+// getJWTSigningKeys retrieves the JWT signing keys from environment variable (local)
+// or AWS Parameter Store (production)
+func getJWTSigningKeys(ctx context.Context, env api.Environment) (map[string]token.SigningKey, string, error) {
+	if env == api.LOCAL {
+		// Local development: use environment variable
+		key := os.Getenv("JWT_SIGNING_KEY")
+		if key == "" {
+			key = "local-development-signing-key-minimum-32-characters-long"
+		}
+		return map[string]token.SigningKey{
+			"local": {ID: "local", Key: []byte(key)},
+		}, "local", nil
+	}
+
+	// Production: retrieve from AWS Parameter Store
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("unable to load AWS SDK config: %w", err)
+	}
+
+	client := ssm.NewFromConfig(cfg)
+
+	result, err := client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String("/jwtSigningKeys"),
+		WithDecryption: aws.Bool(true),
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get JWT signing keys from Parameter Store: %w", err)
+	}
+
+	// Parse JSON response
+	var data jwtSigningKeysData
+	if err := json.Unmarshal([]byte(*result.Parameter.Value), &data); err != nil {
+		return nil, "", fmt.Errorf("failed to parse JWT signing keys JSON: %w", err)
+	}
+
+	// Convert to map of SigningKey (keys are base64 encoded)
+	signingKeys := make(map[string]token.SigningKey)
+	for keyID, keyValue := range data.Keys {
+		decodedKey, err := base64.StdEncoding.DecodeString(keyValue)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to decode base64 key %q: %w", keyID, err)
+		}
+		signingKeys[keyID] = token.SigningKey{
+			ID:  keyID,
+			Key: decodedKey,
+		}
+	}
+
+	// Validate that current key exists
+	if _, ok := signingKeys[data.CurrentKey]; !ok {
+		return nil, "", fmt.Errorf("current key ID %q not found in keys", data.CurrentKey)
+	}
+
+	return signingKeys, data.CurrentKey, nil
 }

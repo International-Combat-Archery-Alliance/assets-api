@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
-	"github.com/International-Combat-Archery-Alliance/auth"
+	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/International-Combat-Archery-Alliance/middleware"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
@@ -23,11 +23,11 @@ const (
 )
 
 type API struct {
-	assetManager  *assets.AssetsManager
-	logger        *slog.Logger
-	env           Environment
-	cdnBaseURL    string
-	authValidator auth.Validator
+	assetManager *assets.AssetsManager
+	logger       *slog.Logger
+	env          Environment
+	cdnBaseURL   string
+	tokenService *token.TokenService
 }
 
 var _ StrictServerInterface = (*API)(nil)
@@ -37,14 +37,14 @@ func NewAPI(
 	logger *slog.Logger,
 	env Environment,
 	cdnBaseURL string,
-	authValidator auth.Validator,
+	tokenService *token.TokenService,
 ) *API {
 	return &API{
-		assetManager:  assetsManager,
-		logger:        logger,
-		env:           env,
-		cdnBaseURL:    cdnBaseURL,
-		authValidator: authValidator,
+		assetManager: assetsManager,
+		logger:       logger,
+		env:          env,
+		cdnBaseURL:   cdnBaseURL,
+		tokenService: tokenService,
 	}
 }
 
