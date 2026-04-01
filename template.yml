@@ -63,7 +63,7 @@ Resources:
             Action:
               - ssm:GetParameter
             Resource:
-              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/googleServiceAccount"
+              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/jwtSigningKeys"
           - Effect: Allow
             Action:
               - s3:PutObject

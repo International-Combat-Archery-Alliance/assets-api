@@ -9,8 +9,8 @@ servers:
   - url: http://localhost:3000/
     description: Local dev server
 security:
-  - googleCookieAuth: []
-  - googleBearerAuth: []
+  - icaaCookieAuth: []
+  - icaaBearerAuth: []
 paths:
   /assets/v1:
     get:
@@ -22,8 +22,8 @@ paths:
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
       security:
-        - googleCookieAuth: []
-        - googleBearerAuth: []
+        - icaaCookieAuth: []
+        - icaaBearerAuth: []
         - {} # Allow unauthenticated users
       parameters:
         - name: path
@@ -94,8 +94,8 @@ paths:
       summary: Create a folder
       description: Creates a new folder at the specified path. Admin only.
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - icaaCookieAuth: [admin]
+        - icaaBearerAuth: [admin]
       requestBody:
         description: Folder creation details
         required: true
@@ -151,8 +151,8 @@ paths:
       summary: Get a presigned upload URL
       description: Returns a presigned URL for uploading a file directly to S3. Admin only. The parent folder must exist.
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - icaaCookieAuth: [admin]
+        - icaaBearerAuth: [admin]
       requestBody:
         description: Upload request details
         required: true
@@ -202,8 +202,8 @@ paths:
         - Admin users (with admin scope) receive full asset details (AdminAsset type with id, createdBy, createdAt, status)
         - Public users (without admin scope) receive limited asset details (PublicAsset type without sensitive metadata)
       security:
-        - googleCookieAuth: []
-        - googleBearerAuth: []
+        - icaaCookieAuth: []
+        - icaaBearerAuth: []
         - {} # Allow unauthenticated users
       parameters:
         - name: path
@@ -247,8 +247,8 @@ paths:
       summary: Delete an asset
       description: Delete an asset by full path. Admin only. Deleting a folder will fail if it still contains any files or subfolders.
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - icaaCookieAuth: [admin]
+        - icaaBearerAuth: [admin]
       parameters:
         - name: path
           in: query
@@ -290,8 +290,8 @@ paths:
       summary: Confirm file upload
       description: Confirms that a file has been uploaded to S3. Admin only.
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - icaaCookieAuth: [admin]
+        - icaaBearerAuth: [admin]
       parameters:
         - name: path
           in: query
@@ -348,8 +348,8 @@ paths:
       summary: Get a presigned URL to replace a file's contents
       description: Returns a presigned URL for uploading new content to replace an existing file. Admin only. The file must exist and be in confirmed status.
       security:
-        - googleCookieAuth: [admin]
-        - googleBearerAuth: [admin]
+        - icaaCookieAuth: [admin]
+        - icaaBearerAuth: [admin]
       parameters:
         - name: path
           in: query
@@ -392,14 +392,16 @@ paths:
 
 components:
   securitySchemes:
-    googleCookieAuth:
+    icaaCookieAuth:
       type: apiKey
       in: cookie
-      name: GOOGLE_AUTH_JWT
-    googleBearerAuth:
+      name: ICAA_ACCESS_TOKEN
+      description: ICAA access token cookie
+    icaaBearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: ICAA access token in Authorization header
   schemas:
     AssetType:
       type: string
