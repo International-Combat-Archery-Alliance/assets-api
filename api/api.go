@@ -67,10 +67,15 @@ func (a *API) ListenAndServe(host string, port string) error {
 		return fmt.Errorf("failed to create swagger ui middleware: %w", err)
 	}
 
+	// Setup CORS middleware
+	corsConfig := middleware.DefaultCorsConfig()
+	corsConfig.IsProduction = a.env == PROD
+	corsMiddleware := middleware.CorsMiddleware(corsConfig)
+
 	middlewares := []middleware.MiddlewareFunc{
 		// Executes from the bottom up
 		a.openapiValidateMiddleware(swagger),
-		a.corsMiddleware(),
+		corsMiddleware,
 		swaggerUIMiddleware,
 		middleware.AccessLogging(a.logger),
 	}
