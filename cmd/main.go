@@ -191,7 +191,7 @@ func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
-				AccessKeyID: "local", SecretAccessKey: "local", SessionToken: "",
+				AccessKeyID: "local", SecretAccessKey: "locallocal", SessionToken: "",
 				Source: "Mock credentials used for local instance",
 			},
 		}),
