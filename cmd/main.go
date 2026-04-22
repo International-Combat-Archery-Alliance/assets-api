@@ -14,6 +14,7 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/assets-api/dynamo"
 	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
+	"github.com/International-Combat-Archery-Alliance/assets-api/telemetry"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -21,11 +22,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 )
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	traceShutdown, err := telemetry.Init(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize telemetry: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := traceShutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to shutdown telemetry: %v\n", err)
+		}
+	}()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -153,6 +168,8 @@ func createLocalDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
 		return nil, err
 	}
 
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String("http://dynamodb:8000")
 	}), nil
@@ -163,6 +180,9 @@ func createProdDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+
 	return dynamodb.NewFromConfig(cfg), nil
 }
 
@@ -180,8 +200,10 @@ func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
 		return nil, err
 	}
 
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String("http://localstack:4566")
+		o.BaseEndpoint = aws.String("http://minio:9000")
 		o.UsePathStyle = true
 	}), nil
 }
@@ -191,6 +213,9 @@ func createProdS3Client(ctx context.Context) (*s3.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+
 	return s3.NewFromConfig(cfg), nil
 }
 

@@ -12,6 +12,10 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/International-Combat-Archery-Alliance/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -26,6 +30,7 @@ type API struct {
 	assetManager *assets.AssetsManager
 	logger       *slog.Logger
 	env          Environment
+	tracer       trace.Tracer
 	cdnBaseURL   string
 	tokenService *token.TokenService
 }
@@ -33,16 +38,17 @@ type API struct {
 var _ StrictServerInterface = (*API)(nil)
 
 func NewAPI(
-	assetsManager *assets.AssetsManager,
+	assetsManagers *assets.AssetsManager,
 	logger *slog.Logger,
 	env Environment,
 	cdnBaseURL string,
 	tokenService *token.TokenService,
 ) *API {
 	return &API{
-		assetManager: assetsManager,
+		assetManager: assetsManagers,
 		logger:       logger,
 		env:          env,
+		tracer:       otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/api"),
 		cdnBaseURL:   cdnBaseURL,
 		tokenService: tokenService,
 	}
@@ -85,6 +91,7 @@ func (a *API) ListenAndServe(host string, port string) error {
 	}
 
 	h := middleware.UseMiddlewares(r, middlewares...)
+	h = otelhttp.NewHandler(h, "")
 
 	s := &http.Server{
 		Handler: h,
@@ -125,6 +132,9 @@ func (a *API) isAdmin(ctx context.Context) bool {
 
 // GetAssetsV1 returns all assets at a path
 func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject) (GetAssetsV1ResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "GetAssetsV1")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	// guaranteed to be non-nil from openapi doc
@@ -138,6 +148,8 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 				Message: "Invalid cursor",
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to get assets", slog.String("error", err.Error()))
 		return GetAssetsV1500JSONResponse{
 			Code:    InternalError,
@@ -150,6 +162,8 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 	for i, asset := range result.Data {
 		item, err := assetToAPI(asset, a.cdnBaseURL, a.isAdmin(ctx))
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			logger.Error("failed to convert asset to API model", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 			return GetAssetsV1500JSONResponse{
 				Code:    InternalError,
@@ -170,6 +184,9 @@ func (a *API) GetAssetsV1(ctx context.Context, request GetAssetsV1RequestObject)
 
 // PostAssetsV1Folders creates a new folder
 func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1FoldersRequestObject) (PostAssetsV1FoldersResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "PostAssetsV1Folders")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	userEmail, err := a.getAdminEmailFromCtx(ctx)
@@ -201,6 +218,8 @@ func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1Folde
 				Message: "Folder already exists",
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to create folder", slog.String("error", err.Error()))
 		return PostAssetsV1Folders500JSONResponse{
 			Code:    InternalError,
@@ -215,6 +234,9 @@ func (a *API) PostAssetsV1Folders(ctx context.Context, request PostAssetsV1Folde
 
 // PostAssetsV1UploadUrl generates a presigned upload URL
 func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1UploadUrlRequestObject) (PostAssetsV1UploadUrlResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "PostAssetsV1UploadUrl")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	// Get admin email from JWT (auth already validated by middleware)
@@ -241,6 +263,8 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 				Message: fmt.Sprintf("Parent folder at path %q not found", request.Body.Path),
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to create file record", slog.String("error", err.Error()))
 		return PostAssetsV1UploadUrl500JSONResponse{
 			Code:    InternalError,
@@ -250,7 +274,7 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 
 	// This is mega hacky and fragile, but this makes the upload url better when running locally
 	if a.env == LOCAL {
-		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "localstack:4566", "localhost:4566", 1)
+		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "minio:9000", "localhost:9000", 1)
 	}
 
 	return PostAssetsV1UploadUrl200JSONResponse{
@@ -263,6 +287,9 @@ func (a *API) PostAssetsV1UploadUrl(ctx context.Context, request PostAssetsV1Upl
 
 // GetAssetsV1ByPath returns a single asset by full path
 func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRequestObject) (GetAssetsV1ByPathResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "GetAssetsV1ByPath")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	asset, err := a.assetManager.GetAsset(ctx, request.Params.Path)
@@ -273,6 +300,8 @@ func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRe
 				Message: fmt.Sprintf("Asset at path %q not found", request.Params.Path),
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to get asset", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return GetAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
@@ -282,6 +311,8 @@ func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRe
 
 	item, err := assetToAPI(asset, a.cdnBaseURL, a.isAdmin(ctx))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to convert asset to API model", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return GetAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
@@ -297,6 +328,9 @@ func (a *API) GetAssetsV1ByPath(ctx context.Context, request GetAssetsV1ByPathRe
 
 // DeleteAssetsV1ByPath deletes an asset by full path
 func (a *API) DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1ByPathRequestObject) (DeleteAssetsV1ByPathResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "DeleteAssetsV1ByPath")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	err := a.assetManager.DeleteAsset(ctx, request.Params.Path)
@@ -313,6 +347,8 @@ func (a *API) DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1By
 				Message: "Cannot delete folder: folder is not empty",
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to delete asset", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return DeleteAssetsV1ByPath500JSONResponse{
 			Code:    InternalError,
@@ -325,6 +361,9 @@ func (a *API) DeleteAssetsV1ByPath(ctx context.Context, request DeleteAssetsV1By
 
 // PostAssetsV1ByPathReplaceUrl generates a presigned URL to replace a file's contents
 func (a *API) PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAssetsV1ByPathReplaceUrlRequestObject) (PostAssetsV1ByPathReplaceUrlResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "PostAssetsV1ByPathReplaceUrl")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	presignResult, file, err := a.assetManager.CreateReplaceUpload(ctx, request.Params.Path)
@@ -347,6 +386,8 @@ func (a *API) PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAsse
 				Message: "File is not confirmed, cannot replace",
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to create replace upload", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return PostAssetsV1ByPathReplaceUrl500JSONResponse{
 			Code:    InternalError,
@@ -356,7 +397,7 @@ func (a *API) PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAsse
 
 	// This is mega hacky and fragile, but this makes the upload url better when running locally
 	if a.env == LOCAL {
-		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "localstack:4566", "localhost:4566", 1)
+		presignResult.UploadURL = strings.Replace(presignResult.UploadURL, "minio:9000", "localhost:9000", 1)
 	}
 
 	return PostAssetsV1ByPathReplaceUrl200JSONResponse{
@@ -369,6 +410,9 @@ func (a *API) PostAssetsV1ByPathReplaceUrl(ctx context.Context, request PostAsse
 
 // PostAssetsV1ByPathConfirm confirms a file upload
 func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV1ByPathConfirmRequestObject) (PostAssetsV1ByPathConfirmResponseObject, error) {
+	ctx, span := a.tracer.Start(ctx, "PostAssetsV1ByPathConfirm")
+	defer span.End()
+
 	logger := a.getLoggerOrBaseLogger(ctx)
 
 	file, err := a.assetManager.ConfirmFileUpload(ctx, request.Params.Path)
@@ -397,6 +441,8 @@ func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV
 				Message: "File was modified by another request, please retry",
 			}, nil
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		logger.Error("failed to confirm upload", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return PostAssetsV1ByPathConfirm500JSONResponse{
 			Code:    InternalError,
@@ -406,6 +452,9 @@ func (a *API) PostAssetsV1ByPathConfirm(ctx context.Context, request PostAssetsV
 
 	apiFile, err := fileToAdminAPI(file, a.cdnBaseURL)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		logger.Error("failed to convert file to admin API", slog.String("filepath", request.Params.Path), slog.String("error", err.Error()))
 		return PostAssetsV1ByPathConfirm500JSONResponse{
 			Code:    InternalError,
 			Message: "Failed to confirm upload",

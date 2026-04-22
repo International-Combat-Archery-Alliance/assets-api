@@ -26,11 +26,17 @@ An API for managing assets (images, documents) for the ICAA website. Built with 
      "ICAAAssets": {
        "DYNAMO_TABLE_NAME": "assets-api",
        "S3_BUCKET_NAME": "icaa-assets",
-       "ASSETS_CDN_BASE_URL": "http://localhost:4566/icaa-assets"
+       "ASSETS_CDN_BASE_URL": "http://localhost:9000/icaa-assets"
      }
    }
    ```
-2. **Build and run the API locally**:
+2. **Start shared infrastructure**:
+   Shared infrastructure (DynamoDB, Jaeger, LocalStack) is managed in `icaa.world/docker-compose.yml`.
+   ```bash
+   cd ../icaa.world && docker compose up -d
+   ```
+
+3. **Build and run the API locally**:
 
    ```bash
    make local
