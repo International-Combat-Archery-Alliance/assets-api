@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/api"
@@ -82,12 +83,22 @@ func main() {
 	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService)
 
 	serverSettings := getServerSettingsFromEnv()
-	err = assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)
-	if err != nil && err != http.ErrServerClosed {
+
+	sigCtx, sigStop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer sigStop()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)
+	}()
+
+	select {
+	case <-sigCtx.Done():
+		logger.Info("shutting down gracefully")
+	case err := <-serverErrCh:
 		logger.Error("error running server", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("shutting down")
 }
 
 type ServerSettings struct {
