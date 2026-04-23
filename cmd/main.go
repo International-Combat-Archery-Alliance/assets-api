@@ -26,14 +26,32 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+const (
+	newRelicLicenseEnvVar  = "NEW_RELIC_LICENSE_KEY"
+	newRelicLicenseSSMPath = "/newrelic-license-key"
+)
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	endpoint := os.Getenv("OTEL_COLLECTOR_ENDPOINT")
-	traceShutdown, metricShutdown, err := telemetry.Init(ctx, telemetry.Options{
+	env := getApiEnvironment()
+
+	licenseKey, err := getNewRelicLicenseKey(ctx, env)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to get New Relic license key: %v\n", err)
+		os.Exit(1)
+	}
+
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "otlp.nr-data.net:4317"
+	}
+
+	traceShutdown, flushTraces, err := telemetry.Init(ctx, telemetry.Options{
 		ServiceName: "assets-api",
 		Endpoint:    endpoint,
+		APIKey:      licenseKey,
 		Lambda:      telemetry.LambdaInfoFromEnv(),
 	})
 	if err != nil {
@@ -44,10 +62,7 @@ func main() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := traceShutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to shutdown trace telemetry: %v\n", err)
-		}
-		if err := metricShutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to shutdown metric telemetry: %v\n", err)
+			fmt.Fprintf(os.Stderr, "failed to shutdown telemetry: %v\n", err)
 		}
 	}()
 
@@ -89,8 +104,6 @@ func main() {
 
 	assetsManager := assets.NewAssetsManager(storage, db)
 
-	env := getApiEnvironment()
-
 	var signingKeys map[string]token.SigningKey
 	var currentKeyID string
 	if err := telemetry.RunWithSpan(ctx, tracer, "init-jwt-signing-keys", func(ctx context.Context) error {
@@ -110,7 +123,7 @@ func main() {
 
 	cdnBaseURL := getEnvOrDefault("ASSETS_CDN_BASE_URL", "https://assets.icaa.world")
 
-	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService)
+	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService, flushTraces)
 
 	// End startup span after initialization completes
 	span.End()
@@ -262,6 +275,31 @@ func createProdS3Client(ctx context.Context) (*s3.Client, error) {
 	}
 
 	return s3.NewFromConfig(cfg), nil
+}
+
+// getNewRelicLicenseKey retrieves the New Relic license key from environment variable (local)
+// or AWS Parameter Store (production)
+func getNewRelicLicenseKey(ctx context.Context, env api.Environment) (string, error) {
+	if env == api.LOCAL {
+		return os.Getenv(newRelicLicenseEnvVar), nil
+	}
+
+	cfg, err := loadAWSConfig(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to load AWS SDK config: %w", err)
+	}
+
+	client := ssm.NewFromConfig(cfg)
+
+	result, err := client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String(newRelicLicenseSSMPath),
+		WithDecryption: aws.Bool(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get New Relic license key from Parameter Store: %w", err)
+	}
+
+	return *result.Parameter.Value, nil
 }
 
 // jwtSigningKeysData represents the JSON structure for signing keys

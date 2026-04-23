@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
@@ -32,6 +33,7 @@ type API struct {
 	tracer       trace.Tracer
 	cdnBaseURL   string
 	tokenService *token.TokenService
+	flushTraces  func(context.Context) error
 }
 
 var _ StrictServerInterface = (*API)(nil)
@@ -42,6 +44,7 @@ func NewAPI(
 	env Environment,
 	cdnBaseURL string,
 	tokenService *token.TokenService,
+	flushTraces func(context.Context) error,
 ) *API {
 	return &API{
 		assetManager: assetsManagers,
@@ -50,6 +53,7 @@ func NewAPI(
 		tracer:       otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/api"),
 		cdnBaseURL:   cdnBaseURL,
 		tokenService: tokenService,
+		flushTraces:  flushTraces,
 	}
 }
 
@@ -84,6 +88,7 @@ func (a *API) ListenAndServe(host string, port string) error {
 		swaggerUIMiddleware,
 		middleware.AccessLogging(a.logger),
 		middleware.OTELHandler,
+		middleware.FlushTraces(a.flushTraces, a.logger, 3*time.Second),
 	}
 
 	if a.env == PROD {

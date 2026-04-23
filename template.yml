@@ -11,10 +11,10 @@ Parameters:
     AllowedValues:
       - arm64
       - x86_64
-  OTELCollectorEndpoint:
+  OTELExporterOTLPEndpoint:
     Type: String
     Default: "localhost:4317"
-    Description: OpenTelemetry collector endpoint
+    Description: OpenTelemetry OTLP exporter endpoint
 
 Mappings:
   attributes:
@@ -32,7 +32,7 @@ Globals:
         DYNAMO_TABLE_NAME: !FindInMap [attributes, dynamo, tableName]
         S3_BUCKET_NAME: !FindInMap [attributes, s3, bucketName]
         ASSETS_CDN_BASE_URL: https://assets.icaa.world
-        OTEL_COLLECTOR_ENDPOINT: !Ref OTELCollectorEndpoint
+        OTEL_EXPORTER_OTLP_ENDPOINT: !Ref OTELExporterOTLPEndpoint
 
 Resources:
   AssetsHttpApi:
