@@ -13,10 +13,10 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/International-Combat-Archery-Alliance/middleware"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 type Environment int
@@ -39,7 +39,7 @@ type API struct {
 var _ StrictServerInterface = (*API)(nil)
 
 func NewAPI(
-	assetsManagers *assets.AssetsManager,
+	assetsManager *assets.AssetsManager,
 	logger *slog.Logger,
 	env Environment,
 	cdnBaseURL string,
@@ -47,7 +47,7 @@ func NewAPI(
 	flushTraces func(context.Context) error,
 ) *API {
 	return &API{
-		assetManager: assetsManagers,
+		assetManager: assetsManager,
 		logger:       logger,
 		env:          env,
 		tracer:       otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/api"),
