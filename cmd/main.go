@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/International-Combat-Archery-Alliance/assets-api/api"
@@ -15,44 +16,102 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/dynamo"
 	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
+	"github.com/International-Combat-Archery-Alliance/telemetry"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	"go.opentelemetry.io/otel"
+)
+
+const (
+	newRelicLicenseEnvVar  = "NEW_RELIC_LICENSE_KEY"
+	newRelicLicenseSSMPath = "/newrelic-license-key"
 )
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	env := getApiEnvironment()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	db, err := makeDB(ctx)
+	licenseKey, err := getNewRelicLicenseKey(ctx, env)
 	if err != nil {
+		logger.Error("failed to get New Relic license key", "error", err)
+		os.Exit(1)
+	}
+
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "otlp.nr-data.net:4317"
+	}
+
+	traceShutdown, flushTraces, err := telemetry.Init(ctx, telemetry.Options{
+		ServiceName: "assets-api",
+		Endpoint:    endpoint,
+		APIKey:      licenseKey,
+		Lambda:      telemetry.LambdaInfoFromEnv(),
+	})
+	if err != nil {
+		logger.Error("failed to initialize telemetry", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := traceShutdown(shutdownCtx); err != nil {
+			logger.Error("failed to shutdown telemetry", "error", err)
+		}
+	}()
+
+	// Start a root trace span for startup
+	tracer := otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/cmd")
+	ctx, span := tracer.Start(ctx, "startup")
+
+	var db *dynamo.DB
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-db", func(ctx context.Context) error {
+		var err error
+		db, err = makeDB(ctx)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error creating db client", "error", err)
 		os.Exit(1)
 	}
 
-	err = db.EnsureRootFolderExists(ctx, "machine")
-	if err != nil {
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-db-root-folder", func(ctx context.Context) error {
+		return db.EnsureRootFolderExists(ctx, "machine")
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error making root folder", "error", err)
 		os.Exit(1)
 	}
 
-	storage, err := makeStorage(ctx)
-	if err != nil {
+	var storage *s3storage.Storage
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-storage", func(ctx context.Context) error {
+		var err error
+		storage, err = makeStorage(ctx)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error creating storage client", "error", err)
 		os.Exit(1)
 	}
 
 	assetsManager := assets.NewAssetsManager(storage, db)
 
-	env := getApiEnvironment()
-
-	signingKeys, currentKeyID, err := getJWTSigningKeys(ctx, env)
-	if err != nil {
+	var signingKeys map[string]token.SigningKey
+	var currentKeyID string
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-jwt-signing-keys", func(ctx context.Context) error {
+		var err error
+		signingKeys, currentKeyID, err = getJWTSigningKeys(ctx, env)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("failed to get JWT signing keys", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
@@ -64,15 +123,28 @@ func main() {
 
 	cdnBaseURL := getEnvOrDefault("ASSETS_CDN_BASE_URL", "https://assets.icaa.world")
 
-	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService)
+	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService, flushTraces)
+
+	// End startup span after initialization completes
+	span.End()
 
 	serverSettings := getServerSettingsFromEnv()
-	err = assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)
-	if err != nil && err != http.ErrServerClosed {
+
+	sigCtx, sigStop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer sigStop()
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		serverErrCh <- assetsAPI.ListenAndServe(serverSettings.Host, serverSettings.Port)
+	}()
+
+	select {
+	case <-sigCtx.Done():
+		logger.Info("shutting down gracefully")
+	case err := <-serverErrCh:
 		logger.Error("error running server", "error", err)
 		os.Exit(1)
 	}
-	logger.Info("shutting down")
 }
 
 type ServerSettings struct {
@@ -139,8 +211,17 @@ func getApiEnvironment() api.Environment {
 	return api.PROD
 }
 
+func loadAWSConfig(ctx context.Context, optFns ...func(*config.LoadOptions) error) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, optFns...)
+	if err != nil {
+		return aws.Config{}, err
+	}
+	telemetry.InstrumentAWSConfig(&cfg)
+	return cfg, nil
+}
+
 func createLocalDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
+	cfg, err := loadAWSConfig(ctx,
 		config.WithRegion("localhost"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
@@ -159,19 +240,20 @@ func createLocalDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
 }
 
 func createProdDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	return dynamodb.NewFromConfig(cfg), nil
 }
 
 func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
+	cfg, err := loadAWSConfig(ctx,
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
-				AccessKeyID: "local", SecretAccessKey: "local", SessionToken: "",
+				AccessKeyID: "local", SecretAccessKey: "locallocal", SessionToken: "",
 				Source: "Mock credentials used for local instance",
 			},
 		}),
@@ -181,17 +263,43 @@ func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String("http://localstack:4566")
+		o.BaseEndpoint = aws.String("http://minio:9000")
 		o.UsePathStyle = true
 	}), nil
 }
 
 func createProdS3Client(ctx context.Context) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
+
 	return s3.NewFromConfig(cfg), nil
+}
+
+// getNewRelicLicenseKey retrieves the New Relic license key from environment variable (local)
+// or AWS Parameter Store (production)
+func getNewRelicLicenseKey(ctx context.Context, env api.Environment) (string, error) {
+	if env == api.LOCAL {
+		return os.Getenv(newRelicLicenseEnvVar), nil
+	}
+
+	cfg, err := loadAWSConfig(ctx)
+	if err != nil {
+		return "", fmt.Errorf("unable to load AWS SDK config: %w", err)
+	}
+
+	client := ssm.NewFromConfig(cfg)
+
+	result, err := client.GetParameter(ctx, &ssm.GetParameterInput{
+		Name:           aws.String(newRelicLicenseSSMPath),
+		WithDecryption: aws.Bool(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get New Relic license key from Parameter Store: %w", err)
+	}
+
+	return *result.Parameter.Value, nil
 }
 
 // jwtSigningKeysData represents the JSON structure for signing keys
@@ -215,7 +323,7 @@ func getJWTSigningKeys(ctx context.Context, env api.Environment) (map[string]tok
 	}
 
 	// Production: retrieve from AWS Parameter Store
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to load AWS SDK config: %w", err)
 	}

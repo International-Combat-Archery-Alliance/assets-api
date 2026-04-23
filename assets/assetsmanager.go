@@ -6,7 +6,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
+
+var tracer = otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/assets")
 
 const (
 	maxUploadSize = 25 * 1024 * 1024 // 25MB
@@ -70,11 +74,16 @@ func (am *AssetsManager) CreateFileUpload(
 	contentType string,
 	createdBy string,
 ) (*PresignedUploadResult, *File, error) {
+	ctx, span := tracer.Start(ctx, "CreateFileUpload")
+	defer span.End()
+
 	id := uuid.New()
 	now := time.Now().UTC()
 
 	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, id, name, contentType, uploadTTL, maxUploadSize)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 
@@ -94,6 +103,8 @@ func (am *AssetsManager) CreateFileUpload(
 	}
 	err = am.metadataRepo.CreateAsset(ctx, file)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 
@@ -104,8 +115,13 @@ func (am *AssetsManager) ConfirmFileUpload(
 	ctx context.Context,
 	fullPath string,
 ) (*File, error) {
+	ctx, span := tracer.Start(ctx, "ConfirmFileUpload")
+	defer span.End()
+
 	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -116,6 +132,8 @@ func (am *AssetsManager) ConfirmFileUpload(
 
 	headResult, err := am.storageRepo.HeadObject(ctx, file.ObjectKey)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, NewFailedToFetchError(fmt.Sprintf("%q failed to fetch from storage", fullPath), err)
 	}
 
@@ -135,6 +153,8 @@ func (am *AssetsManager) ConfirmFileUpload(
 
 	err = am.metadataRepo.UpdateAsset(ctx, file)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
@@ -145,8 +165,13 @@ func (am *AssetsManager) CreateReplaceUpload(
 	ctx context.Context,
 	fullPath string,
 ) (*PresignedUploadResult, *File, error) {
+	ctx, span := tracer.Start(ctx, "CreateReplaceUpload")
+	defer span.End()
+
 	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 
@@ -163,6 +188,8 @@ func (am *AssetsManager) CreateReplaceUpload(
 	// Generate presigned URL for the existing object key (overwrites the file)
 	result, err := am.storageRepo.GeneratePresignedUploadURL(ctx, file.ID, file.Name, file.ContentType, uploadTTL, maxUploadSize)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, nil, err
 	}
 
@@ -170,21 +197,30 @@ func (am *AssetsManager) CreateReplaceUpload(
 }
 
 func (am *AssetsManager) DeleteAsset(ctx context.Context, fullPath string) error {
+	ctx, span := tracer.Start(ctx, "DeleteAsset")
+	defer span.End()
+
 	// Get asset first to determine type and get S3 key if it's a file
 	asset, err := am.metadataRepo.GetAsset(ctx, fullPath)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
 	// If it's a file, delete from storage first
 	if file, ok := asset.(*File); ok {
 		if err := am.storageRepo.DeleteObject(ctx, file.ObjectKey); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return err
 		}
 	}
 
 	// Delete from metadata
 	if err := am.metadataRepo.DeleteAsset(ctx, fullPath); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
