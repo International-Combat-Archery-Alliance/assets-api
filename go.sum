@@ -6,8 +6,10 @@ github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c h1:udKWzYgxTojEK
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/International-Combat-Archery-Alliance/auth v0.3.1 h1:J3/8Z4wtOm2ORi0fSqBqAzM59LNpg0yegDix4fK481w=
 github.com/International-Combat-Archery-Alliance/auth v0.3.1/go.mod h1:5bQS/2zDLOw+xKeCBGa9VIt6FOgqNHe76s216dtfK/E=
-github.com/International-Combat-Archery-Alliance/middleware v0.3.0 h1:ycpy57N/JHzfgJqCWhamql/msHxS3yrktXks6P9e2PI=
-github.com/International-Combat-Archery-Alliance/middleware v0.3.0/go.mod h1:d2OV8hqxYBmrEtMFOBHfV9UUKJG5Hs0QlTAj5KIYAJY=
+github.com/International-Combat-Archery-Alliance/middleware v0.4.0 h1:Q5Hov3WzUcgYOX4FNzkQcO65jlPYpWDVjx16UBZOZpQ=
+github.com/International-Combat-Archery-Alliance/middleware v0.4.0/go.mod h1:W5agYaAIyixBuUHBzMHTFs0OYFYaeAum2PS4lSxh//U=
+github.com/International-Combat-Archery-Alliance/telemetry v0.2.0 h1:5NJOVZBkHvZahfJgpWaOv1xvYR56WbVPG5NLOoz9s6U=
+github.com/International-Combat-Archery-Alliance/telemetry v0.2.0/go.mod h1:TcYpUKuamws0CcgslxWyAXIWzf+gv5/qYoKVGl6saNo=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=
@@ -281,8 +283,8 @@ go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.68.0 h1:AojZNtrcbjp4Ty3ZwpQvPCcoM5o5CApjf1kj3XrOLdw=
 go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.68.0/go.mod h1:AXXwEDlD/ZZwps0zPtTuU2K05sf55/6GLnQ21L0WzFo=
-go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0 h1:ssfIgGNANqpVFCndZvcuyKbl0g+UAVcbBcqGkG28H0Y=
-go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0/go.mod h1:GQ/474YrbE4Jx8gZ4q5I4hrhUzM6UPzyrqJYV2AqPoQ=
+go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 h1:OyrsyzuttWTSur2qN/Lm0m2a8yqyIjUVBZcxFPuXq2o=
+go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0/go.mod h1:C2NGBr+kAB4bk3xtMXfZ94gqFDtg/GkI7e9zqGh5Beg=
 go.opentelemetry.io/otel v1.43.0 h1:mYIM03dnh5zfN7HautFE4ieIig9amkNANT+xcVxAj9I=
 go.opentelemetry.io/otel v1.43.0/go.mod h1:JuG+u74mvjvcm8vj8pI5XiHy1zDeoCS2LB1spIq7Ay0=
 go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0 h1:88Y4s2C8oTui1LGM6bTWkw0ICGcOLCAI5l6zsD1j20k=

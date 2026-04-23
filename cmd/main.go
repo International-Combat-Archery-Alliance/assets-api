@@ -15,22 +15,27 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/assets-api/dynamo"
 	s3storage "github.com/International-Combat-Archery-Alliance/assets-api/s3"
-	"github.com/International-Combat-Archery-Alliance/assets-api/telemetry"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
+	"github.com/International-Combat-Archery-Alliance/telemetry"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
+	"go.opentelemetry.io/otel"
 )
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	traceShutdown, err := telemetry.Init(ctx)
+	endpoint := os.Getenv("OTEL_COLLECTOR_ENDPOINT")
+	traceShutdown, metricShutdown, err := telemetry.Init(ctx, telemetry.Options{
+		ServiceName: "assets-api",
+		Endpoint:    endpoint,
+		Lambda:      telemetry.LambdaInfoFromEnv(),
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize telemetry: %v\n", err)
 		os.Exit(1)
@@ -39,26 +44,45 @@ func main() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := traceShutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to shutdown telemetry: %v\n", err)
+			fmt.Fprintf(os.Stderr, "failed to shutdown trace telemetry: %v\n", err)
+		}
+		if err := metricShutdown(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to shutdown metric telemetry: %v\n", err)
 		}
 	}()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	db, err := makeDB(ctx)
-	if err != nil {
+	// Start a root trace span for startup
+	tracer := otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/cmd")
+	ctx, span := tracer.Start(ctx, "startup")
+
+	var db *dynamo.DB
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-db", func(ctx context.Context) error {
+		var err error
+		db, err = makeDB(ctx)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error creating db client", "error", err)
 		os.Exit(1)
 	}
 
-	err = db.EnsureRootFolderExists(ctx, "machine")
-	if err != nil {
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-db-root-folder", func(ctx context.Context) error {
+		return db.EnsureRootFolderExists(ctx, "machine")
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error making root folder", "error", err)
 		os.Exit(1)
 	}
 
-	storage, err := makeStorage(ctx)
-	if err != nil {
+	var storage *s3storage.Storage
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-storage", func(ctx context.Context) error {
+		var err error
+		storage, err = makeStorage(ctx)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("Error creating storage client", "error", err)
 		os.Exit(1)
 	}
@@ -67,8 +91,14 @@ func main() {
 
 	env := getApiEnvironment()
 
-	signingKeys, currentKeyID, err := getJWTSigningKeys(ctx, env)
-	if err != nil {
+	var signingKeys map[string]token.SigningKey
+	var currentKeyID string
+	if err := telemetry.RunWithSpan(ctx, tracer, "init-jwt-signing-keys", func(ctx context.Context) error {
+		var err error
+		signingKeys, currentKeyID, err = getJWTSigningKeys(ctx, env)
+		return err
+	}); err != nil {
+		span.RecordError(err)
 		logger.Error("failed to get JWT signing keys", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
@@ -81,6 +111,9 @@ func main() {
 	cdnBaseURL := getEnvOrDefault("ASSETS_CDN_BASE_URL", "https://assets.icaa.world")
 
 	assetsAPI := api.NewAPI(assetsManager, logger, env, cdnBaseURL, tokenService)
+
+	// End startup span after initialization completes
+	span.End()
 
 	serverSettings := getServerSettingsFromEnv()
 
@@ -165,8 +198,17 @@ func getApiEnvironment() api.Environment {
 	return api.PROD
 }
 
+func loadAWSConfig(ctx context.Context, optFns ...func(*config.LoadOptions) error) (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, optFns...)
+	if err != nil {
+		return aws.Config{}, err
+	}
+	telemetry.InstrumentAWSConfig(&cfg)
+	return cfg, nil
+}
+
 func createLocalDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
+	cfg, err := loadAWSConfig(ctx,
 		config.WithRegion("localhost"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
@@ -179,26 +221,22 @@ func createLocalDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
 		return nil, err
 	}
 
-	otelaws.AppendMiddlewares(&cfg.APIOptions)
-
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String("http://dynamodb:8000")
 	}), nil
 }
 
 func createProdDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	otelaws.AppendMiddlewares(&cfg.APIOptions)
 
 	return dynamodb.NewFromConfig(cfg), nil
 }
 
 func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
+	cfg, err := loadAWSConfig(ctx,
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
@@ -211,8 +249,6 @@ func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
 		return nil, err
 	}
 
-	otelaws.AppendMiddlewares(&cfg.APIOptions)
-
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String("http://minio:9000")
 		o.UsePathStyle = true
@@ -220,12 +256,10 @@ func createLocalS3Client(ctx context.Context) (*s3.Client, error) {
 }
 
 func createProdS3Client(ctx context.Context) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	otelaws.AppendMiddlewares(&cfg.APIOptions)
 
 	return s3.NewFromConfig(cfg), nil
 }
@@ -251,7 +285,7 @@ func getJWTSigningKeys(ctx context.Context, env api.Environment) (map[string]tok
 	}
 
 	// Production: retrieve from AWS Parameter Store
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := loadAWSConfig(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("unable to load AWS SDK config: %w", err)
 	}

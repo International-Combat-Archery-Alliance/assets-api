@@ -12,7 +12,6 @@ import (
 	"github.com/International-Combat-Archery-Alliance/assets-api/assets"
 	"github.com/International-Combat-Archery-Alliance/auth/token"
 	"github.com/International-Combat-Archery-Alliance/middleware"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -84,6 +83,7 @@ func (a *API) ListenAndServe(host string, port string) error {
 		corsMiddleware,
 		swaggerUIMiddleware,
 		middleware.AccessLogging(a.logger),
+		middleware.OTELHandler,
 	}
 
 	if a.env == PROD {
@@ -91,7 +91,6 @@ func (a *API) ListenAndServe(host string, port string) error {
 	}
 
 	h := middleware.UseMiddlewares(r, middlewares...)
-	h = otelhttp.NewHandler(h, "")
 
 	s := &http.Server{
 		Handler: h,
