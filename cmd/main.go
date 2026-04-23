@@ -37,9 +37,11 @@ func main() {
 
 	env := getApiEnvironment()
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
 	licenseKey, err := getNewRelicLicenseKey(ctx, env)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get New Relic license key: %v\n", err)
+		logger.Error("failed to get New Relic license key", "error", err)
 		os.Exit(1)
 	}
 
@@ -55,18 +57,16 @@ func main() {
 		Lambda:      telemetry.LambdaInfoFromEnv(),
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize telemetry: %v\n", err)
+		logger.Error("failed to initialize telemetry", "error", err)
 		os.Exit(1)
 	}
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		if err := traceShutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to shutdown telemetry: %v\n", err)
+			logger.Error("failed to shutdown telemetry", "error", err)
 		}
 	}()
-
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// Start a root trace span for startup
 	tracer := otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/cmd")
