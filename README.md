@@ -31,7 +31,7 @@ An API for managing assets (images, documents) for the ICAA website. Built with 
    }
    ```
 2. **Start shared infrastructure**:
-   Shared infrastructure (DynamoDB, Jaeger, LocalStack) is managed in `icaa.world/docker-compose.yml`.
+    Shared infrastructure (DynamoDB, Jaeger, MinIO) is managed in `icaa.world/docker-compose.yml`.
    ```bash
    cd ../icaa.world && docker compose up -d
    ```
