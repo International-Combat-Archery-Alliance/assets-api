@@ -16,18 +16,17 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-const testBucketName = "test-bucket"
-
 func setupMinIO(t *testing.T) (*s3.Client, string, func()) {
 	ctx := context.Background()
+	bucketName := "test-bucket-" + uuid.New().String()
 
 	if _, ok := os.LookupEnv("TEST_IN_CI"); ok {
-		return setupMinIOInCI(t, ctx)
+		return setupMinIOInCI(t, ctx, bucketName)
 	}
-	return setupMinIOTestContainers(t, ctx)
+	return setupMinIOTestContainers(t, ctx, bucketName)
 }
 
-func setupMinIOInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
+func setupMinIOInCI(t *testing.T, ctx context.Context, bucketName string) (*s3.Client, string, func()) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
@@ -49,7 +48,7 @@ func setupMinIOInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func
 	})
 
 	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-		Bucket: aws.String(testBucketName),
+		Bucket: aws.String(bucketName),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create bucket: %v", err)
@@ -57,14 +56,14 @@ func setupMinIOInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func
 
 	cleanup := func() {
 		_, _ = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-			Bucket: aws.String(testBucketName),
+			Bucket: aws.String(bucketName),
 		})
 	}
 
-	return client, testBucketName, cleanup
+	return client, bucketName, cleanup
 }
 
-func setupMinIOTestContainers(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
+func setupMinIOTestContainers(t *testing.T, ctx context.Context, bucketName string) (*s3.Client, string, func()) {
 	req := testcontainers.ContainerRequest{
 		Image:        "minio/minio:latest",
 		ExposedPorts: []string{"9000/tcp"},
@@ -119,14 +118,14 @@ func setupMinIOTestContainers(t *testing.T, ctx context.Context) (*s3.Client, st
 	})
 
 	_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-		Bucket: aws.String(testBucketName),
+		Bucket: aws.String(bucketName),
 	})
 	if err != nil {
 		cleanup()
 		t.Fatalf("Failed to create bucket: %v", err)
 	}
 
-	return client, testBucketName, cleanup
+	return client, bucketName, cleanup
 }
 
 func TestNewStorage(t *testing.T) {
