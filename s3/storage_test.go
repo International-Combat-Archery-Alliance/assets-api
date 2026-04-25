@@ -13,28 +13,27 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/localstack"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const testBucketName = "test-bucket"
 
-func setupLocalStack(t *testing.T) (*s3.Client, string, func()) {
+func setupMinIO(t *testing.T) (*s3.Client, string, func()) {
 	ctx := context.Background()
 
-	// Check if running in CI
 	if _, ok := os.LookupEnv("TEST_IN_CI"); ok {
-		return setupLocalStackInCI(t, ctx)
+		return setupMinIOInCI(t, ctx)
 	}
-	return setupLocalStackTestContainers(t, ctx)
+	return setupMinIOTestContainers(t, ctx)
 }
 
-func setupLocalStackInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
+func setupMinIOInCI(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: aws.Credentials{
-				AccessKeyID:     "test",
-				SecretAccessKey: "test",
+				AccessKeyID:     "minioadmin",
+				SecretAccessKey: "minioadmin",
 				SessionToken:    "",
 				Source:          "Mock credentials used for local instance",
 			},
@@ -45,7 +44,7 @@ func setupLocalStackInCI(t *testing.T, ctx context.Context) (*s3.Client, string,
 	}
 
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String("http://localhost:4566")
+		o.BaseEndpoint = aws.String("http://localhost:9000")
 		o.UsePathStyle = true
 	})
 
@@ -57,7 +56,6 @@ func setupLocalStackInCI(t *testing.T, ctx context.Context) (*s3.Client, string,
 	}
 
 	cleanup := func() {
-		// In CI, just delete the bucket to clean up
 		_, _ = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
 			Bucket: aws.String(testBucketName),
 		})
@@ -66,25 +64,39 @@ func setupLocalStackInCI(t *testing.T, ctx context.Context) (*s3.Client, string,
 	return client, testBucketName, cleanup
 }
 
-func setupLocalStackTestContainers(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
-	localstackContainer, err := localstack.RunContainer(ctx, testcontainers.WithImage("localstack/localstack:3.0"))
+func setupMinIOTestContainers(t *testing.T, ctx context.Context) (*s3.Client, string, func()) {
+	req := testcontainers.ContainerRequest{
+		Image:        "minio/minio:latest",
+		ExposedPorts: []string{"9000/tcp"},
+		Cmd:          []string{"server", "/data"},
+		Env: map[string]string{
+			"MINIO_ROOT_USER":     "minioadmin",
+			"MINIO_ROOT_PASSWORD": "minioadmin",
+		},
+		WaitingFor: wait.ForHTTP("/minio/health/live").WithPort("9000/tcp").WithStartupTimeout(30 * time.Second),
+	}
+
+	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
 	if err != nil {
-		t.Fatalf("Failed to start LocalStack container: %v", err)
+		t.Fatalf("Failed to start MinIO container: %v", err)
 	}
 
 	cleanup := func() {
-		if err := localstackContainer.Terminate(ctx); err != nil {
+		if err := container.Terminate(ctx); err != nil {
 			t.Logf("Failed to terminate container: %v", err)
 		}
 	}
 
-	mappedPort, err := localstackContainer.MappedPort(ctx, "4566/tcp")
+	mappedPort, err := container.MappedPort(ctx, "9000/tcp")
 	if err != nil {
 		cleanup()
 		t.Fatalf("Failed to get mapped port: %v", err)
 	}
 
-	hostIP, err := localstackContainer.Host(ctx)
+	hostIP, err := container.Host(ctx)
 	if err != nil {
 		cleanup()
 		t.Fatalf("Failed to get host: %v", err)
@@ -94,7 +106,7 @@ func setupLocalStackTestContainers(t *testing.T, ctx context.Context) (*s3.Clien
 
 	cfg, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
 	)
 	if err != nil {
 		cleanup()
@@ -118,7 +130,7 @@ func setupLocalStackTestContainers(t *testing.T, ctx context.Context) (*s3.Clien
 }
 
 func TestNewStorage(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	cdnBaseURL := "https://cdn.example.com"
@@ -139,7 +151,7 @@ func TestNewStorage(t *testing.T) {
 }
 
 func TestStorage_GenerateObjectKey(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
@@ -155,7 +167,7 @@ func TestStorage_GenerateObjectKey(t *testing.T) {
 }
 
 func TestStorage_GeneratePresignedUploadURL(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
@@ -200,7 +212,7 @@ func TestStorage_GeneratePresignedUploadURL(t *testing.T) {
 }
 
 func TestStorage_HeadObject_Exists(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
@@ -241,7 +253,7 @@ func TestStorage_HeadObject_Exists(t *testing.T) {
 }
 
 func TestStorage_HeadObject_NotExists(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
@@ -262,7 +274,7 @@ func TestStorage_HeadObject_NotExists(t *testing.T) {
 }
 
 func TestStorage_DeleteObject(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
@@ -304,7 +316,7 @@ func TestStorage_DeleteObject(t *testing.T) {
 }
 
 func TestStorage_DeleteObject_NotExists(t *testing.T) {
-	client, bucketName, cleanup := setupLocalStack(t)
+	client, bucketName, cleanup := setupMinIO(t)
 	defer cleanup()
 
 	storage := NewStorage(client, bucketName, "https://cdn.example.com")
