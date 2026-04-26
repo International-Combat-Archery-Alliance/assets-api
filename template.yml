@@ -108,6 +108,7 @@ Resources:
             AllowedMethods:
               - GET
               - PUT
+              - POST
             AllowedOrigins:
               - "https://icaa.world"
               - "https://*.icaa.world"
