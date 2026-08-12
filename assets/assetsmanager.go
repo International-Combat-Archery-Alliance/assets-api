@@ -13,7 +13,7 @@ import (
 var tracer = otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/assets")
 
 const (
-	maxUploadSize = 25 * 1024 * 1024 // 25MB
+	maxUploadSize = 50 * 1024 * 1024 // 50MB
 	uploadTTL     = 1 * time.Hour
 )
 

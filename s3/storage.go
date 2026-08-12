@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	MaxUploadSize = 25 * 1024 * 1024 // 25MB
+	MaxUploadSize = 50 * 1024 * 1024 // 50MB
 )
 
 var _ assets.StorageRepository = &Storage{}
