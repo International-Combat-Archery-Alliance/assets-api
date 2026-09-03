@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/rsa"
 	"fmt"
 	"log/slog"
 	"os"
@@ -140,13 +141,30 @@ func (m *mockAuthToken) Roles() []auth.Role {
 	return nil
 }
 
-// newTestTokenService creates a token service for testing
-func newTestTokenService() *token.TokenService {
-	testKey := token.SigningKey{
-		ID:  "test",
-		Key: []byte("test-signing-key-minimum-32-characters-long"),
+// newTestTokenValidator returns a validator sharing the test signer's keys.
+func newTestTokenValidator() *token.KeyCache {
+	return testUserValidator
+}
+
+var (
+	testUserSigner    *token.UserTokenSigner
+	testUserValidator *token.KeyCache
+)
+
+func init() {
+	priv, pub, err := token.GenerateUserDevKeypair()
+	if err != nil {
+		panic(err)
 	}
-	return token.NewTokenService(testKey)
+	testUserSigner, err = token.NewUserTokenSigner(
+		map[string]*rsa.PrivateKey{"user-test": priv}, "user-test")
+	if err != nil {
+		panic(err)
+	}
+	testUserValidator = token.NewKeyCache("",
+		token.WithLocalMode(),
+		token.WithDevKeys(map[string]*rsa.PublicKey{"user-test": pub}),
+	)
 }
 
 func TestNewAPI(t *testing.T) {
@@ -155,7 +173,7 @@ func TestNewAPI(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cdnBaseURL := "https://cdn.example.com"
-	authValidator := newTestTokenService()
+	authValidator := newTestTokenValidator()
 
 	api := NewAPI(manager, logger, LOCAL, cdnBaseURL, authValidator, func(ctx context.Context) error { return nil })
 
@@ -221,7 +239,7 @@ func TestAPI_GetAssetsV1(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	limit := 10
 	request := GetAssetsV1RequestObject{
@@ -265,7 +283,7 @@ func TestAPI_GetAssetsV1_InvalidCursor(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	limit := 10
 	cursor := "invalid"
@@ -318,7 +336,7 @@ func TestAPI_GetAssetsV1ByPath_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := GetAssetsV1ByPathRequestObject{
 		Params: GetAssetsV1ByPathParams{
@@ -360,7 +378,7 @@ func TestAPI_GetAssetsV1ByPath_NotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := GetAssetsV1ByPathRequestObject{
 		Params: GetAssetsV1ByPathParams{
@@ -410,7 +428,7 @@ func TestAPI_DeleteAssetsV1ByPath_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -439,7 +457,7 @@ func TestAPI_DeleteAssetsV1ByPath_NotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -481,7 +499,7 @@ func TestAPI_DeleteAssetsV1ByPath_FolderNotEmpty(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -534,7 +552,7 @@ func TestAPI_PostAssetsV1Folders_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	// Create context with admin JWT using middleware helper
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
@@ -579,7 +597,7 @@ func TestAPI_PostAssetsV1Folders_Unauthorized(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	// Context without JWT
 	ctx := context.Background()
@@ -618,7 +636,7 @@ func TestAPI_PostAssetsV1Folders_ParentNotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -665,7 +683,7 @@ func TestAPI_PostAssetsV1Folders_AlreadyExists(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -727,7 +745,7 @@ func TestAPI_PostAssetsV1UploadUrl_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -771,7 +789,7 @@ func TestAPI_PostAssetsV1UploadUrl_Unauthorized(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := context.Background()
 
@@ -810,7 +828,7 @@ func TestAPI_PostAssetsV1UploadUrl_ParentNotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -879,7 +897,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := PostAssetsV1ByPathConfirmRequestObject{
 		Params: PostAssetsV1ByPathConfirmParams{
@@ -915,7 +933,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_NotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := PostAssetsV1ByPathConfirmRequestObject{
 		Params: PostAssetsV1ByPathConfirmParams{
@@ -952,7 +970,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_NotAFile(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := PostAssetsV1ByPathConfirmRequestObject{
 		Params: PostAssetsV1ByPathConfirmParams{
@@ -1002,7 +1020,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_AssetNotUploaded(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := PostAssetsV1ByPathConfirmRequestObject{
 		Params: PostAssetsV1ByPathConfirmParams{
@@ -1057,7 +1075,7 @@ func TestAPI_PostAssetsV1ByPathConfirm_VersionConflict(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := PostAssetsV1ByPathConfirmRequestObject{
 		Params: PostAssetsV1ByPathConfirmParams{
@@ -1086,7 +1104,7 @@ func TestAPI_GetAdminEmailFromCtx_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -1109,7 +1127,7 @@ func TestAPI_GetAdminEmailFromCtx_NoJWT(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := context.Background()
 
@@ -1125,7 +1143,7 @@ func TestAPI_GetAdminEmailFromCtx_NotAdmin(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "user@example.com",
@@ -1148,7 +1166,7 @@ func TestAPI_GetAssetsV1_InternalError(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	limit := 10
 	request := GetAssetsV1RequestObject{
@@ -1184,7 +1202,7 @@ func TestAPI_GetAssetsV1ByPath_InternalError(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := GetAssetsV1ByPathRequestObject{
 		Params: GetAssetsV1ByPathParams{
@@ -1224,7 +1242,7 @@ func TestAPI_DeleteAssetsV1ByPath_InternalError(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	request := DeleteAssetsV1ByPathRequestObject{
 		Params: DeleteAssetsV1ByPathParams{
@@ -1286,7 +1304,7 @@ func TestAPI_PostAssetsV1ByPathReplaceUrl_Success(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -1330,7 +1348,7 @@ func TestAPI_PostAssetsV1ByPathReplaceUrl_NotFound(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -1372,7 +1390,7 @@ func TestAPI_PostAssetsV1ByPathReplaceUrl_NotAFile(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -1421,7 +1439,7 @@ func TestAPI_PostAssetsV1ByPathReplaceUrl_FileNotConfirmed(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",
@@ -1474,7 +1492,7 @@ func TestAPI_PostAssetsV1ByPathReplaceUrl_InternalError(t *testing.T) {
 	manager := assets.NewAssetsManager(storageRepo, metadataRepo)
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenService(), func(ctx context.Context) error { return nil })
+	api := NewAPI(manager, logger, LOCAL, "https://cdn.example.com", newTestTokenValidator(), func(ctx context.Context) error { return nil })
 
 	ctx := middleware.CtxWithJWT(context.Background(), &mockAuthToken{
 		email:   "admin@example.com",

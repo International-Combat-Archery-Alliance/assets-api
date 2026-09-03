@@ -32,18 +32,23 @@ type API struct {
 	env          Environment
 	tracer       trace.Tracer
 	cdnBaseURL   string
-	tokenService *token.TokenService
+	validator    UserTokenValidator
 	flushTraces  func(context.Context) error
 }
 
 var _ StrictServerInterface = (*API)(nil)
+
+// UserTokenValidator verifies user access tokens against the login JWKS endpoint.
+type UserTokenValidator interface {
+	ValidateUserAccessToken(ctx context.Context, tokenString string) (*token.ICAAClaims, error)
+}
 
 func NewAPI(
 	assetsManager *assets.AssetsManager,
 	logger *slog.Logger,
 	env Environment,
 	cdnBaseURL string,
-	tokenService *token.TokenService,
+	validator UserTokenValidator,
 	flushTraces func(context.Context) error,
 ) *API {
 	return &API{
@@ -52,7 +57,7 @@ func NewAPI(
 		env:          env,
 		tracer:       otel.Tracer("github.com/International-Combat-Archery-Alliance/assets-api/api"),
 		cdnBaseURL:   cdnBaseURL,
-		tokenService: tokenService,
+		validator:    validator,
 		flushTraces:  flushTraces,
 	}
 }
