@@ -148,7 +148,6 @@ func setupApi(logger *slog.Logger) (*api.API, func(context.Context) error, error
 
 	if err := g.Wait(); err != nil {
 		startupSpan.RecordError(err)
-		startupSpan.End()
 		return nil, traceShutdown, err
 	}
 
