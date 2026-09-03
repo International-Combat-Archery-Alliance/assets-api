@@ -64,7 +64,6 @@ Resources:
               - ssm:GetParameter
               - ssm:GetParameters
             Resource:
-              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/jwtSigningKeys"
               - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/newrelic-license-key"
           - Effect: Allow
             Action:
