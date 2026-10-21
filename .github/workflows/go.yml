@@ -29,14 +29,14 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.25'
+        go-version: '1.27'
 
     - name: Start MinIO
       run: |
         docker run -d --name minio -p 9000:9000 \
           -e MINIO_ROOT_USER=minioadmin \
           -e MINIO_ROOT_PASSWORD=minioadmin \
-          minio/minio:latest server /data
+          pgsty/silo:RELEASE.2026-10-18T00-00-00Z server /data
 
     - name: Wait for MinIO
       run: |
