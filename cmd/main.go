@@ -130,8 +130,13 @@ func setupApi(logger *slog.Logger) (*api.API, func(context.Context) error, error
 		db, err = makeDB(ctx)
 		if err != nil {
 			span.RecordError(err)
+			return err
 		}
-		return err
+		if err := db.EnsureRootFolderExists(ctx, "machine"); err != nil {
+			span.RecordError(err)
+			return err
+		}
+		return nil
 	})
 
 	g.Go(func() error {
