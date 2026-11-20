@@ -39,6 +39,8 @@ aws iam put-role-policy --role-name assets-api-github-deploy \
   stack listing, which `sam` needs and can't be resource-scoped)
 - S3 data ops on the SAM-managed staging bucket above (SAM uploads the
   packaged template there on every deploy, even for image-based Lambdas)
+- S3 CORS get/put on the `assets.icaa.world` bucket (CloudFormation applies
+  `CorsConfiguration` changes with the deploy role's credentials)
 - ECR image push on the existing `assetsapiab9b273c/icaaassets7139eb54repo` repo
   (`ecr:GetAuthorizationToken` on `*` is required by AWS, it can't be scoped)
 - ECR Public auth (`ecr-public:GetAuthorizationToken` + `sts:GetServiceBearerToken`

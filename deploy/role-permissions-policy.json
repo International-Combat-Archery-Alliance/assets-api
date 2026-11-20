@@ -41,6 +41,15 @@
       ]
     },
     {
+      "Sid": "AssetsBucketCors",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketCORS",
+        "s3:PutBucketCORS"
+      ],
+      "Resource": "arn:aws:s3:::assets.icaa.world"
+    },
+    {
       "Sid": "EcrImagePush",
       "Effect": "Allow",
       "Action": [
