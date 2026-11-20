@@ -112,7 +112,7 @@ Resources:
               - "https://icaa.world"
               - "https://*.icaa.world"
               - "https://*-icaa-world.curly-sound-f2cd.workers.dev"
-            MaxAge: 7200
+            MaxAge: 3600
 
   AssetsBucketPolicy:
     Type: AWS::S3::BucketPolicy
