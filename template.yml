@@ -111,10 +111,8 @@ Resources:
             AllowedOrigins:
               - "https://icaa.world"
               - "https://*.icaa.world"
-              - "https://*.icaa-world.curly-sound-f2cd.workers.dev"
-              - "http://localhost:4173"
-              - "http://localhost:5173"
-            MaxAge: 3600
+              - "https://*-icaa-world.curly-sound-f2cd.workers.dev"
+            MaxAge: 7200
 
   AssetsBucketPolicy:
     Type: AWS::S3::BucketPolicy
