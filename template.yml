@@ -111,7 +111,7 @@ Resources:
             AllowedOrigins:
               - "https://icaa.world"
               - "https://*.icaa.world"
-              - "https://*.icaa-world.curly-sound-f2cd.workers.dev"
+              - "https://*-icaa-world.curly-sound-f2cd.workers.dev"
             MaxAge: 3600
 
   AssetsBucketPolicy:
